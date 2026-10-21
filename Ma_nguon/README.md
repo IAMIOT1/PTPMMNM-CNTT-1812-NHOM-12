@@ -1,43 +1,24 @@
-# Lab 01 — Vận hành dự án trên linux và viết shell script
+# Lab 03 — Đề tài 3: Hệ thống quản lý bản dịch và phát hành gói ngôn ngữ
 
-Mã mẫu cho phần hướng dẫn và mã khởi đầu cho bài tự làm.
+Phiên bản Lab 03 (hiển thị danh sách, tìm kiếm, lọc và xử lý form) viết lại theo đề tài
+**Xây dựng hệ thống quản lý bản dịch và phát hành gói ngôn ngữ cho phần mềm**.
 
-## Mở bài
-
-Mở terminal Ubuntu/WSL tại thư mục chứa `lab.sh`. Dùng PHP từ 8.1 và Git. Hướng dẫn chi tiết, sơ đồ, đoạn mã cần sửa, dữ liệu đối chiếu và rubric nằm trong tài liệu của bài lab.
+| Lab 03 gốc (sự kiện) | Đề tài 3 (gói ngôn ngữ) |
+| --- | --- |
+| Sự kiện (`events`) | Gói ngôn ngữ (`packs`) |
+| Loại sự kiện `category` | Nền tảng `platform` (web/mobile) |
+| Còn chỗ (`capacity - registered`) | Còn chuỗi chưa dịch (`total - translated`) |
+| Form đăng ký tham dự | Form gửi đề xuất bản dịch |
 
 ```bash
 bash lab.sh check
-bash lab.sh run
+bash lab.sh run      # http://127.0.0.1:8103 và /contribute.php
+bash lab.sh test     # TESTS=7 FAILED=0
+bash lab.sh extend   # TESTS=8 FAILED=0
 ```
 
-Mở http://127.0.0.1:8101. Giữ terminal máy chủ hoạt động; dùng terminal thứ hai để kiểm thử. Nhấn Ctrl+C để dừng.
+- Trang chủ: tìm theo tên gói, lọc theo nền tảng, chỉ gói chưa dịch xong (AND); giữ lại lựa chọn sau khi gửi.
+- `/contribute.php`: kiểm tra phía máy chủ, hiển thị `PREVIEW_OK` hoặc mã lỗi; chưa lưu CSDL.
+- Bài tập mở rộng nằm ở `src/PackFilter.php` và `public/index.php`.
 
-Bài này không cần PostgreSQL, Composer hoặc framework.
-
-## Kiểm tra bài
-
-```bash
-bash lab.sh test
-bash lab.sh extend
-```
-
-`test` kiểm tra phần mẫu; `extend` kiểm tra phần tự làm. Các vị trí TODO là nhiệm vụ cần hoàn thiện; không sửa test để bỏ qua lỗi.
-
-Kết quả mở rộng cần đạt: `SHELL_CASES=4 FAILED=0`. Hoàn thành script kiểm tra môi trường và script quét mã PHP; xử lý được thư mục thiếu, thư mục rỗng, tệp sai cú pháp và đường dẫn có khoảng trắng.
-
-## Tệp nộp
-
-Giữ mã nguồn, dữ liệu mẫu và kiểm thử. Ghi lại lệnh chạy trong README. Không đưa `.local`, mật khẩu hoặc dữ liệu cá nhân thật vào kho mã và gói nộp. Nộp đúng commit theo yêu cầu của bài; nếu dùng Actions, đính kèm lần chạy tương ứng.
-
-
-## Phần trình bày giao diện
-
-Lab này giữ CSS cục bộ tại `public/assets/css/app.css`. HTML nằm trong `public/`; các lab có nhiều trang dùng `templates/header.php` và `templates/footer.php`. Có thể lần từ các lớp `form-field`, `event-item`, `error-summary` sang CSS để đọc cách trình bày; Lab01 chỉ dùng phần trang giới thiệu.
-
-Các lớp, nhãn và bố cục chỉ phục vụ hiển thị. Giữ nguyên khối PHP, GET/POST, tên trường, giá trị option, hidden input và thuộc tính kiểm tra đầu vào khi thực hành. Không cần JavaScript, thư viện hoặc bước build mới để chạy giao diện.
-
-
-## Giao diện Material 3
-
-Màu và kiểu chữ nằm trong `public/assets/css/tokens.css`; bố cục trong `app.css`. Không có bước build hoặc thư viện mới.
+Dữ liệu giả lập, không dùng thông tin cá nhân thật. Không đưa `.local` vào bài nộp.
