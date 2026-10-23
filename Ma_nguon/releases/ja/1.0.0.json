@@ -1,0 +1,21 @@
+{
+    "app": {
+        "title": "企業管理システム",
+        "welcome_message": "こんにちは、{name}さん！処理が必要な新しい通知が{count}件あります。",
+        "nav": {
+            "dashboard": "コントロールパネル",
+            "settings": "システム設定",
+            "profile": "個人プロフィール"
+        },
+        "actions": {
+            "save": "変更を保存",
+            "cancel": "キャンセル",
+            "delete": "この項目を削除",
+            "confirm_delete": "項目「{item_name}」を削除してもよろしいですか？"
+        }
+    },
+    "errors": {
+        "not_found": "キー {key} のリソースが見つかりません。",
+        "unauthorized": "このページにアクセスする権限がありません、{name}さん。"
+    }
+}

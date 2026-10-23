@@ -1,0 +1,28 @@
+{
+    "auth": {
+        "login": "Đã dịch cho: Đăng nhập {name}",
+        "welcome": "Đã dịch cho: Chào mừng bạn quay lại, có {count} tin nhắn mới."
+    },
+    "common": {
+        "button": "Đã dịch cho: Xác nhận"
+    },
+    "app": {
+        "title": "Hệ thống quản lý doanh nghiệp",
+        "welcome_message": "Xin chào, {name}! Bạn có {count} thông báo mới cần xử lý.",
+        "nav": {
+            "dashboard": "Bảng điều khiển",
+            "settings": "Cài đặt hệ thống",
+            "profile": "Hồ sơ cá nhân"
+        },
+        "actions": {
+            "save": "Lưu thay đổi",
+            "cancel": "Hủy bỏ",
+            "delete": "Xóa mục này",
+            "confirm_delete": "Bạn có chắc chắn muốn xóa mục {item_name} không?"
+        }
+    },
+    "errors": {
+        "not_found": "Không tìm thấy tài nguyên cho khóa {key}.",
+        "unauthorized": "Bạn không có quyền truy cập trang này, {name}."
+    }
+}
