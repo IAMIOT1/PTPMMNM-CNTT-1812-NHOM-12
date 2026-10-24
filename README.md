@@ -1,56 +1,24 @@
-# Lab01 — Bài thực hành dành cho sinh viên
+# Lab 03 — Đề tài 3: Hệ thống quản lý bản dịch và phát hành gói ngôn ngữ
 
-Nhánh này chỉ chứa một bài lab. Dùng Ubuntu/WSL, PHP từ 8.1 và Git.
+Phiên bản Lab 03 (hiển thị danh sách, tìm kiếm, lọc và xử lý form) viết lại theo đề tài
+**Xây dựng hệ thống quản lý bản dịch và phát hành gói ngôn ngữ cho phần mềm**.
 
-Không cần PostgreSQL hoặc Composer.
-
-## Chuẩn bị trên Ubuntu/WSL
-
-```bash
-sudo apt update
-sudo apt install php-cli git unzip
-php -v
-git --version
-```
-
-PHP cần từ 8.1 trở lên. Các lệnh bên dưới chạy trong Ubuntu/WSL. Khi tải nhiều bài, trở về thư mục cha chứa các thư mục lab trước mỗi lệnh clone; không clone bài tiếp theo bên trong `Ma_nguon` của bài trước.
-
-## Tải bài
-
-```bash
-git clone --single-branch --branch lab1 https://github.com/FIT-DNU/Open-Source-Software-Development.git lab1
-cd lab1/Ma_nguon
-```
-
-## Chạy bài
+| Lab 03 gốc (sự kiện) | Đề tài 3 (gói ngôn ngữ) |
+| --- | --- |
+| Sự kiện (`events`) | Gói ngôn ngữ (`packs`) |
+| Loại sự kiện `category` | Nền tảng `platform` (web/mobile) |
+| Còn chỗ (`capacity - registered`) | Còn chuỗi chưa dịch (`total - translated`) |
+| Form đăng ký tham dự | Form gửi đề xuất bản dịch |
 
 ```bash
 bash lab.sh check
-bash lab.sh run
+bash lab.sh run      # http://127.0.0.1:8103 và /contribute.php
+bash lab.sh test     # TESTS=7 FAILED=0
+bash lab.sh extend   # TESTS=8 FAILED=0
 ```
 
-Mở http://127.0.0.1:8101. Giữ terminal mở; Ctrl+C để dừng.
+- Trang chủ: tìm theo tên gói, lọc theo nền tảng, chỉ gói chưa dịch xong (AND); giữ lại lựa chọn sau khi gửi.
+- `/contribute.php`: kiểm tra phía máy chủ, hiển thị `PREVIEW_OK` hoặc mã lỗi; chưa lưu CSDL.
+- Bài tập mở rộng nằm ở `src/PackFilter.php` và `public/index.php`.
 
-## Kiểm tra
-
-Mở terminal thứ hai tại Ma_nguon, hoặc dừng máy chủ trước:
-
-```bash
-bash lab.sh test
-bash lab.sh extend
-```
-
-test kiểm tra phần mẫu; extend kiểm tra phần tự làm. Sinh viên cần hoàn thiện TODO; extend có thể chưa đạt ở bản khởi đầu.
-
-[Hướng dẫn đầy đủ](HUONG_DAN.md) · [Hướng dẫn mã nguồn](Ma_nguon/README.md)
-
-Không đưa .local, mật khẩu hoặc dữ liệu cá nhân thật vào bài nộp.
-
-## Các bài khác
-
-[Lab01](https://github.com/FIT-DNU/Open-Source-Software-Development/tree/lab1) · [Lab02](https://github.com/FIT-DNU/Open-Source-Software-Development/tree/lab2) · [Lab03](https://github.com/FIT-DNU/Open-Source-Software-Development/tree/lab3) · [Lab04](https://github.com/FIT-DNU/Open-Source-Software-Development/tree/lab4) · [Lab05](https://github.com/FIT-DNU/Open-Source-Software-Development/tree/lab5)
-
-Kết quả yêu cầu của phần mẫu: `CHECK_ENV=PASS`. `check` chỉ kiểm tra môi trường. `extend` ở bản khởi đầu còn ca chưa đạt vì TODO; không sửa test để bỏ qua lỗi.
-
-
-Trang mẫu đã dùng cùng hệ màu Material 3; không có bước build hay thư viện mới. Bài shell và TODO giữ nguyên.
+Dữ liệu giả lập, không dùng thông tin cá nhân thật. 
