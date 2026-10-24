@@ -120,9 +120,9 @@ $stats = pg_fetch_assoc($statsRes);
     <section class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6">
         <h2 class="text-xl font-bold mb-4">Thống kê dịch thuật</h2>
         <div class="grid gap-4 sm:grid-cols-3">
-            <div class="rounded-lg bg-blue-50 p-4"><p class="text-sm text-blue-700">Đã dịch (Draft / Translated)</p><p class="text-2xl font-bold"><?= (int)$stats['translated_count'] ?></p></div>
-            <div class="rounded-lg bg-green-50 p-4"><p class="text-sm text-green-700">Đã duyệt (Approved)</p><p class="text-2xl font-bold"><?= (int)$stats['approved_count'] ?></p></div>
-            <div class="rounded-lg bg-amber-50 p-4"><p class="text-sm text-amber-700">Cần xem xét / Từ chối</p><p class="text-2xl font-bold"><?= (int)$stats['review_count'] ?></p></div>
+            <div class="rounded-lg bg-blue-50 p-4"><p class="text-sm text-blue-700">Đã dịch</p><p class="text-2xl font-bold"><?= (int)$stats['translated_count'] ?></p></div>
+            <div class="rounded-lg bg-green-50 p-4"><p class="text-sm text-green-700">Đã duyệt</p><p class="text-2xl font-bold"><?= (int)$stats['approved_count'] ?></p></div>
+            <div class="rounded-lg bg-amber-50 p-4"><p class="text-sm text-amber-700">Cần kiểm tra / Từ chối</p><p class="text-2xl font-bold"><?= (int)$stats['review_count'] ?></p></div>
         </div>
     </section>
 

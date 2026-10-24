@@ -36,26 +36,120 @@ $currentUser = $auth->getCurrentUser();
 $isAuthenticated = $currentUser !== null;
 $isAdmin = $isAuthenticated && ProjectAccess::isSystemAdmin($currentUser);
 $csrfToken = $isAuthenticated ? Csrf::token() : null;
+$projectRoleLabels = [
+    'Team Lead' => 'Trưởng nhóm',
+    'Reviewer' => 'Kiểm duyệt viên',
+    'Translator' => 'Biên dịch viên'
+];
 
 if (!$isAuthenticated) {
     $auth->redirectToLogin((string)($_SERVER['REQUEST_URI'] ?? '/index.php'));
 }
+
+if (($_POST['action'] ?? '') === 'delete_project') {
+    header('Content-Type: application/json; charset=utf-8');
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['success' => false, 'message' => 'Chỉ hỗ trợ yêu cầu POST.'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if (!Csrf::isValid($_POST)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Yêu cầu không hợp lệ hoặc phiên đã hết hạn.'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $deleteProjectId = filter_var($_POST['project_id'] ?? null, FILTER_VALIDATE_INT);
+    if ($deleteProjectId === false || $deleteProjectId === null || $deleteProjectId < 1) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'ID dự án không hợp lệ.'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if (pg_query($conn, 'BEGIN') === false) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Không thể bắt đầu giao dịch xóa dự án.'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    try {
+        $ownedProjectRes = queryParams(
+            $conn,
+            'SELECT id FROM projects WHERE id = $1 AND created_by = $2 FOR UPDATE',
+            [(int)$deleteProjectId, (int)$currentUser['id']]
+        );
+        if (!pg_fetch_assoc($ownedProjectRes)) {
+            pg_query($conn, 'ROLLBACK');
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Không tìm thấy dự án hoặc bạn không phải chủ sở hữu.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        $publishedRes = queryParams(
+            $conn,
+            'SELECT 1 FROM release_snapshots WHERE project_id = $1 LIMIT 1',
+            [(int)$deleteProjectId]
+        );
+        if (pg_fetch_assoc($publishedRes)) {
+            pg_query($conn, 'ROLLBACK');
+            http_response_code(409);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Không thể xóa dự án đã có gói phát hành. Các gói đã xuất bản được bảo vệ và không thể xóa.'
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        queryParams($conn, 'DELETE FROM glossary WHERE project_id = $1', [(int)$deleteProjectId]);
+        queryParams($conn, 'DELETE FROM translation_memory WHERE project_id = $1', [(int)$deleteProjectId]);
+        queryParams($conn, 'DELETE FROM audit_logs WHERE project_id = $1', [(int)$deleteProjectId]);
+        $deletedProjectRes = queryParams(
+            $conn,
+            'DELETE FROM projects WHERE id = $1 AND created_by = $2 RETURNING id',
+            [(int)$deleteProjectId, (int)$currentUser['id']]
+        );
+        if (!pg_fetch_assoc($deletedProjectRes)) {
+            throw new RuntimeException('PROJECT_DELETE_OWNERSHIP_CHANGED');
+        }
+        if (pg_query($conn, 'COMMIT') === false) {
+            throw new RuntimeException('PROJECT_DELETE_COMMIT_FAILED');
+        }
+
+        echo json_encode(['success' => true, 'message' => 'Đã xóa dự án thành công.'], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        if (pg_transaction_status($conn) !== PGSQL_TRANSACTION_IDLE) {
+            pg_query($conn, 'ROLLBACK');
+        }
+        error_log('PROJECT_DELETE_FAILED: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Không thể xóa dự án do lỗi cơ sở dữ liệu.'], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
 $notificationManager = new NotificationManager($conn);
 $notifications = $notificationManager->recentForUser((int)$currentUser['id']);
 $unreadNotificationCount = $notificationManager->unreadCount((int)$currentUser['id']);
 
 $successMessage = '';
-$errorMessage = '';
+$errorMessage = $invalidLocale ? 'Mã hoặc tên ngôn ngữ đích không hợp lệ.' : '';
 if (($_GET['created'] ?? '') === '1') {
-    $successMessage = 'Tạo dự án mới thành công. Bạn là Team Lead của dự án.';
+    $successMessage = 'Tạo dự án mới thành công. Bạn là Trưởng nhóm của dự án.';
 }
 
-$currentLocale = $_GET['locale'] ?? 'vi';
+$invalidLocale = false;
+try {
+    [$currentLocale] = AiTranslator::resolveTargetLanguage((string)($_GET['locale'] ?? 'vi'));
+} catch (InvalidArgumentException $e) {
+    http_response_code(400);
+    $currentLocale = 'vi';
+    $invalidLocale = true;
+}
 
 $projects = [];
 $projectsRes = queryParams(
     $conn,
-    'SELECT DISTINCT p.id, p.name, p.description
+    'SELECT DISTINCT p.id, p.name, p.description, p.created_by
      FROM projects p
      LEFT JOIN project_members pm ON pm.project_id = p.id
      WHERE p.created_by = $1 OR pm.user_id = $1
@@ -160,24 +254,39 @@ if (!defined('TMS_PROJECT_DETAIL')) {
             <?php if ($projects): ?>
                 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <?php foreach ($projects as $project): ?>
-                        <a class="tms-project-link rounded-xl border border-slate-200 p-5 hover:border-indigo-400 hover:bg-indigo-50"
-                           href="project_detail.php?id=<?= (int)$project['id'] ?>">
-                            <span class="flex items-start justify-between gap-3">
+                        <article class="tms-project-link rounded-xl border border-slate-200 p-5 hover:border-indigo-400 hover:bg-indigo-50"
+                                 data-project-card="<?= (int)$project['id'] ?>">
+                            <div class="flex items-start justify-between gap-3">
                                 <span class="grid h-11 w-11 place-items-center rounded-xl bg-indigo-100 text-lg font-bold text-indigo-700" aria-hidden="true">
                                     <?= htmlspecialchars(strtoupper(substr((string)$project['name'], 0, 1)), ENT_QUOTES, 'UTF-8') ?>
                                 </span>
-                                <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">ID: <?= (int)$project['id'] ?></span>
-                            </span>
-                            <span class="mt-4 block text-base font-bold text-slate-900"><?= htmlspecialchars($project['name'], ENT_QUOTES, 'UTF-8') ?></span>
-                            <span class="mt-1 block min-h-10 text-sm text-slate-500"><?= htmlspecialchars((string)($project['description'] ?? ''), ENT_QUOTES, 'UTF-8') ?: 'Chưa có mô tả dự án.' ?></span>
-                            <span class="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-indigo-600">Mở workspace <span aria-hidden="true">→</span></span>
-                        </a>
+                                <div class="flex items-center gap-2">
+                                    <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">ID: <?= (int)$project['id'] ?></span>
+                                    <?php if ((int)$project['created_by'] === (int)$currentUser['id']): ?>
+                                        <button type="button"
+                                                class="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-50"
+                                                data-delete-project
+                                                data-project-id="<?= (int)$project['id'] ?>"
+                                                data-project-name="<?= htmlspecialchars((string)$project['name'], ENT_QUOTES, 'UTF-8') ?>"
+                                                data-csrf-token="<?= htmlspecialchars((string)$csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                                            🗑 Xóa
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            <a class="block focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-lg"
+                               href="project_detail.php?id=<?= (int)$project['id'] ?>">
+                                <span class="mt-4 block text-base font-bold text-slate-900"><?= htmlspecialchars($project['name'], ENT_QUOTES, 'UTF-8') ?></span>
+                                <span class="mt-1 block min-h-10 text-sm text-slate-500"><?= htmlspecialchars((string)($project['description'] ?? ''), ENT_QUOTES, 'UTF-8') ?: 'Chưa có mô tả dự án.' ?></span>
+                                <span class="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-indigo-600">Mở workspace <span aria-hidden="true">→</span></span>
+                            </a>
+                        </article>
                     <?php endforeach; ?>
                 </div>
             <?php else: ?>
                 <div class="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/60 px-6 py-10 text-center">
                     <p class="text-base font-semibold text-slate-800">Bạn chưa có dự án nào.</p>
-                    <p class="mt-1 text-sm text-slate-500">Tạo dự án mới hoặc nhờ Team Lead thêm bạn vào dự án qua User ID.</p>
+                    <p class="mt-1 text-sm text-slate-500">Tạo dự án mới hoặc nhờ Trưởng nhóm thêm bạn vào dự án qua User ID.</p>
                     <button type="button" class="tms-button-primary mt-5 text-white px-4 py-2 rounded-lg text-sm font-semibold" data-open-project-modal>
                         Tạo dự án đầu tiên
                     </button>
@@ -194,7 +303,7 @@ if (!defined('TMS_PROJECT_DETAIL')) {
                 <div>
                     <p class="text-xs font-bold uppercase tracking-widest text-indigo-500">New project</p>
                     <h2 id="create-project-title" class="mt-1 text-xl font-bold text-slate-900">Tạo dự án mới</h2>
-                    <p class="mt-1 text-sm text-slate-500">Bạn sẽ tự động trở thành Team Lead của dự án.</p>
+                    <p class="mt-1 text-sm text-slate-500">Bạn sẽ tự động trở thành Trưởng nhóm của dự án.</p>
                 </div>
                 <button type="button" class="tms-modal-close" aria-label="Đóng" data-close-project-modal>×</button>
             </div>
@@ -216,6 +325,44 @@ if (!defined('TMS_PROJECT_DETAIL')) {
             });
             document.querySelectorAll('[data-close-project-modal]').forEach((button) => {
                 button.addEventListener('click', () => modal.close());
+            });
+            document.querySelectorAll('[data-delete-project]').forEach((button) => {
+                button.addEventListener('click', async () => {
+                    const projectName = button.dataset.projectName || 'dự án này';
+                    if (!window.confirm(`Bạn có chắc chắn muốn xóa dự án ${projectName} không? Hành động này không thể hoàn tất lại.`)) {
+                        return;
+                    }
+
+                    button.disabled = true;
+                    try {
+                        const response = await fetch('index.php', {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                                'Accept': 'application/json'
+                            },
+                            body: new URLSearchParams({
+                                action: 'delete_project',
+                                project_id: button.dataset.projectId || '',
+                                csrf_token: button.dataset.csrfToken || ''
+                            })
+                        });
+                        let result;
+                        try {
+                            result = await response.json();
+                        } catch {
+                            throw new Error('Phản hồi máy chủ không hợp lệ. Vui lòng tải lại trang và thử lại.');
+                        }
+                        if (!response.ok || !result.success) {
+                            throw new Error(result.message || 'Không thể xóa dự án.');
+                        }
+                        window.location.reload();
+                    } catch (error) {
+                        window.alert(error instanceof Error ? error.message : 'Không thể xóa dự án.');
+                        button.disabled = false;
+                    }
+                });
             });
             modal.addEventListener('click', (event) => {
                 if (event.target === modal) modal.close();
@@ -389,7 +536,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             ProjectAccess::roleFor($conn, $targetProjectId, (int)$currentUser['id']) !== 'Team Lead'
         ) {
             http_response_code(403);
-            $errorMessage = 'Chỉ Team Lead của dự án hiện tại mới được quản lý thành viên.';
+            $errorMessage = 'Chỉ Trưởng nhóm của dự án hiện tại mới được quản lý thành viên.';
         } else {
             if (pg_query($conn, 'BEGIN') === false) {
                     throw new RuntimeException('PROJECT_MEMBER_UPDATE_TRANSACTION_FAILED');
@@ -414,7 +561,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         NotificationManager::create(
                             $conn,
                             $memberUserId,
-                            "Bạn đã được thêm vào dự án {$projectName} với vai trò {$memberRole}."
+                            "Bạn đã được thêm vào dự án {$projectName} với vai trò " .
+                                ($projectRoleLabels[$memberRole] ?? $memberRole) . '.'
                         );
                     }
                     if (pg_query($conn, 'COMMIT') === false) {
@@ -452,7 +600,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             ProjectAccess::roleFor($conn, $targetProjectId, (int)$currentUser['id']) !== 'Team Lead'
         ) {
             http_response_code(403);
-            $errorMessage = 'Chỉ Team Lead của dự án hiện tại mới được quản lý thành viên.';
+            $errorMessage = 'Chỉ Trưởng nhóm của dự án hiện tại mới được quản lý thành viên.';
         } else {
             $updateMemberRes = queryParams(
                 $conn,
@@ -488,7 +636,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             ProjectAccess::roleFor($conn, $targetProjectId, (int)$currentUser['id']) !== 'Team Lead'
         ) {
             http_response_code(403);
-            $errorMessage = 'Chỉ Team Lead của dự án hiện tại mới được quản lý thành viên.';
+            $errorMessage = 'Chỉ Trưởng nhóm của dự án hiện tại mới được quản lý thành viên.';
         } elseif ($memberUserId < 1) {
             $errorMessage = 'User ID thành viên không hợp lệ.';
         } else {
@@ -533,12 +681,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $errorMessage = 'Bạn chưa là thành viên của dự án này.';
             } elseif (!VariableValidator::validate($sourceRow['source_text'], $translatedText)) {
                 $errorMessage = 'Bản dịch phải giữ nguyên các biến trong chuỗi nguồn (ví dụ: {name}).';
-            } elseif (
-                !in_array($status, ['draft'], true) &&
-                !ProjectAccess::canReview($conn, (int)$sourceRow['project_id'], $currentUser)
-            ) {
+            } elseif (!ProjectAccess::canSetTranslationStatus(
+                $conn,
+                (int)$sourceRow['project_id'],
+                (int)$currentUser['id'],
+                $status
+            )) {
                 http_response_code(403);
-                $errorMessage = 'Chỉ Reviewer hoặc Team Lead của dự án mới được duyệt/thay đổi trạng thái review.';
+                $errorMessage = 'Biên dịch viên chỉ được chọn Bản nháp hoặc Cần kiểm tra; Kiểm duyệt viên và Trưởng nhóm được chọn mọi trạng thái.';
             } else {
                 $priorTranslationRes = queryParams(
                     $conn,
@@ -630,15 +780,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
     elseif ($action === 'ai_translate' && $currentVersion) {
-        if (!ProjectAccess::canTranslate($conn, $projectId, $currentUser)) {
+        if ($invalidLocale) {
+            $errorMessage = 'Không thể dịch AI vì mã ngôn ngữ đích không hợp lệ.';
+        } elseif (!ProjectAccess::canTranslate($conn, $projectId, $currentUser)) {
             http_response_code(403);
             $errorMessage = 'Bạn chưa là thành viên của dự án này.';
         } else {
             $aiTranslator = new AiTranslator($conn);
-            $count = $aiTranslator->autoTranslateMissing((int)$currentVersion['id'], $currentLocale, (int)$currentUser['id']);
-
-            $auditLogger->log($projectId, null, 'AI_TRANSLATE', "User [{$currentUser['username']}] kích hoạt AI dịch {$count} chuỗi [{$currentLocale}]");
-            $successMessage = "AI đã tự động dịch thành công {$count} chuỗi!";
+            try {
+                $count = $aiTranslator->autoTranslateAll((int)$currentVersion['id'], $currentLocale, (int)$currentUser['id']);
+                $auditLogger->log($projectId, null, 'AI_TRANSLATE', "User [{$currentUser['username']}] dịch {$count} chuỗi [{$currentLocale}]");
+                $successMessage = "Gemini đã dịch thành công {$count} chuỗi!";
+            } catch (InvalidArgumentException $e) {
+                $errorMessage = 'Mã hoặc tên ngôn ngữ đích không hợp lệ. Vui lòng chọn ngôn ngữ được hỗ trợ.';
+            } catch (RuntimeException $e) {
+                error_log('AI_TRANSLATION_FAILED: ' . $e->getMessage());
+                $errorMessage = 'Dịch AI không thành công: ' . $e->getMessage();
+            }
         }
     }
     elseif ($action === 'export_release' && $currentVersion) {
@@ -658,7 +816,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     elseif ($action === 'export_translation_package' && $currentVersion) {
             if (!$canReviewCurrentProject) {
                 http_response_code(403);
-                $errorMessage = 'Chỉ Team Lead hoặc Reviewer của dự án mới được xuất tệp dịch.';
+                $errorMessage = 'Chỉ Trưởng nhóm hoặc Kiểm duyệt viên của dự án mới được xuất tệp dịch.';
             } else {
                 $exporter = new TranslationPackageExporter($conn);
                 $json = $exporter->export((int)$currentVersion['id'], $currentLocale);
@@ -727,7 +885,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             (int)($_POST['project_id'] ?? 0) !== $projectId
         ) {
             http_response_code(403);
-            $errorMessage = 'Chỉ Team Lead của dự án hiện tại mới được nhập tệp JSON nguồn.';
+            $errorMessage = 'Chỉ Trưởng nhóm của dự án hiện tại mới được nhập tệp JSON nguồn.';
         } else {
             $versionNumber = trim($_POST['version_number'] ?? '');
 
@@ -782,12 +940,14 @@ if ($currentVersion && $canTranslateCurrentProject) {
                    WHERE s.source_version_id = $2";
     $stringParams = [$currentLocale, $versionId];
     $statusFilter = (string)($_GET['status'] ?? '');
-    if ($statusFilter === 'translated') {
+    if ($statusFilter === 'draft' || $statusFilter === 'translated') {
         $sqlStrings .= " AND COALESCE(t.status, 'draft') IN ('draft', 'translated')";
     } elseif ($statusFilter === 'approved') {
         $sqlStrings .= " AND COALESCE(t.status, 'draft') = 'approved'";
+    } elseif ($statusFilter === 'rejected') {
+        $sqlStrings .= " AND COALESCE(t.status, 'draft') = 'rejected'";
     } elseif ($statusFilter === 'needs_review') {
-        $sqlStrings .= " AND COALESCE(t.status, 'draft') IN ('needs_review', 'rejected')";
+        $sqlStrings .= " AND COALESCE(t.status, 'draft') = 'needs_review'";
     }
     $searchQuery = trim((string)($_GET['q'] ?? ''));
     if ($searchQuery !== '') {
@@ -864,8 +1024,13 @@ if ($currentProjectRole !== null) {
                     <span class="text-xs font-semibold text-gray-500 uppercase">Ngôn ngữ:</span>
                     <select onchange="location = this.value;" class="bg-transparent text-sm font-bold text-indigo-600 focus:outline-none cursor-pointer">
                         <option value="<?= $workspaceAction ?>&amp;locale=vi&amp;<?= $versionQuery ?>" <?= $currentLocale === 'vi' ? 'selected' : '' ?>>🇻🇳 vi</option>
-                            <option value="<?= $workspaceAction ?>&amp;locale=en&amp;<?= $versionQuery ?>" <?= $currentLocale === 'en' ? 'selected' : '' ?>>🇬🇧 en</option>
-                            <option value="<?= $workspaceAction ?>&amp;locale=ja&amp;<?= $versionQuery ?>" <?= $currentLocale === 'ja' ? 'selected' : '' ?>>🇯🇵 ja</option>
+                        <option value="<?= $workspaceAction ?>&amp;locale=en&amp;<?= $versionQuery ?>" <?= $currentLocale === 'en' ? 'selected' : '' ?>>🇬🇧 en</option>
+                        <option value="<?= $workspaceAction ?>&amp;locale=ja&amp;<?= $versionQuery ?>" <?= $currentLocale === 'ja' ? 'selected' : '' ?>>🇯🇵 ja</option>
+                        <option value="<?= $workspaceAction ?>&amp;locale=zh&amp;<?= $versionQuery ?>" <?= $currentLocale === 'zh' ? 'selected' : '' ?>>🇨🇳 zh</option>
+                        <option value="<?= $workspaceAction ?>&amp;locale=ko&amp;<?= $versionQuery ?>" <?= $currentLocale === 'ko' ? 'selected' : '' ?>>🇰🇷 ko</option>
+                        <option value="<?= $workspaceAction ?>&amp;locale=fr&amp;<?= $versionQuery ?>" <?= $currentLocale === 'fr' ? 'selected' : '' ?>>🇫🇷 fr</option>
+                        <option value="<?= $workspaceAction ?>&amp;locale=de&amp;<?= $versionQuery ?>" <?= $currentLocale === 'de' ? 'selected' : '' ?>>🇩🇪 de</option>
+                        <option value="<?= $workspaceAction ?>&amp;locale=es&amp;<?= $versionQuery ?>" <?= $currentLocale === 'es' ? 'selected' : '' ?>>🇪🇸 es</option>
                     </select>
                 </div>
 
@@ -898,7 +1063,7 @@ if ($currentProjectRole !== null) {
             </div>
             <div class="col-md-3">
                 <div class="tms-stat-card">
-                    <p class="text-sm font-medium text-gray-500">Đã duyệt (Approved)</p>
+                    <p class="text-sm font-medium text-gray-500">Đã duyệt</p>
                     <p class="text-3xl font-bold text-green-600 mt-2"><?= $stats['approved'] ?></p>
                 </div>
             </div>
@@ -932,7 +1097,7 @@ if ($currentProjectRole !== null) {
                 </div>
             <?php else: ?>
                 <p class="rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                    Bạn chưa có dự án nào. Hãy tạo dự án mới hoặc nhờ Team Lead thêm bạn vào dự án qua User ID.
+                    Bạn chưa có dự án nào. Hãy tạo dự án mới hoặc nhờ Trưởng nhóm thêm bạn vào dự án qua User ID.
                 </p>
             <?php endif; ?>
         </section>
@@ -996,7 +1161,7 @@ if ($currentProjectRole !== null) {
         <?php if ($isAuthenticated && !defined('TMS_PROJECT_DETAIL')): ?>
         <section class="tms-side-panel tms-create-project tms-accent-indigo tms-highlight mb-8 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
             <h2 class="text-lg font-semibold text-gray-800 mb-2">Tạo dự án mới</h2>
-            <p class="text-sm text-gray-500 mb-4">Người tạo dự án sẽ tự động được gán vai trò Team Lead.</p>
+            <p class="text-sm text-gray-500 mb-4">Người tạo dự án sẽ tự động được gán vai trò Trưởng nhóm.</p>
             <form method="POST" action="index.php">
                 <input type="hidden" name="action" value="create_project">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
@@ -1021,7 +1186,7 @@ if ($currentProjectRole !== null) {
             <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <h2 class="text-lg font-semibold text-gray-800 mb-1">Thành viên dự án</h2>
-                    <p class="text-sm text-gray-500">Dự án: <?= htmlspecialchars((string)($projectName ?? ''), ENT_QUOTES, 'UTF-8') ?> (ID: <?= $projectId ?>) — <span class="tms-role-badge <?= $currentProjectRole === 'Team Lead' ? 'tms-role-lead' : ($currentProjectRole === 'Translator' ? 'tms-role-translator' : 'tms-role-reviewer') ?>"><?= htmlspecialchars($currentProjectRole, ENT_QUOTES, 'UTF-8') ?></span></p>
+                    <p class="text-sm text-gray-500">Dự án: <?= htmlspecialchars((string)($projectName ?? ''), ENT_QUOTES, 'UTF-8') ?> (ID: <?= $projectId ?>) — <span class="tms-role-badge <?= $currentProjectRole === 'Team Lead' ? 'tms-role-lead' : ($currentProjectRole === 'Translator' ? 'tms-role-translator' : 'tms-role-reviewer') ?>"><?= htmlspecialchars($projectRoleLabels[$currentProjectRole] ?? $currentProjectRole, ENT_QUOTES, 'UTF-8') ?></span></p>
                 </div>
                 <?php if ($currentProjectRole === 'Team Lead'): ?>
                     <button type="button" class="tms-button-primary px-4 py-2 text-sm font-semibold text-white" data-open-member-modal>
@@ -1046,9 +1211,9 @@ if ($currentProjectRole !== null) {
                     <input id="member_user_id" type="number" name="user_id" min="1" required class="mt-1 w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm">
                     <label class="mt-4 block text-sm font-semibold text-slate-700" for="role_in_project">Vai trò</label>
                     <select id="role_in_project" name="role_in_project" required class="mt-1 w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm">
-                        <option value="Translator">Translator</option>
-                        <option value="Reviewer">Reviewer</option>
-                        <option value="Team Lead">Team Lead</option>
+                        <option value="Translator">Biên dịch viên</option>
+                        <option value="Reviewer">Kiểm duyệt viên</option>
+                        <option value="Team Lead">Trưởng nhóm</option>
                     </select>
                     <div class="mt-6 flex justify-end gap-2">
                         <button type="button" class="tms-modal-cancel" data-close-member-modal>Hủy</button>
@@ -1075,7 +1240,7 @@ if ($currentProjectRole !== null) {
                                     default => 'tms-role-default',
                                 };
                                 ?>
-                                <span class="tms-role-badge <?= $roleBadgeClass ?>"><?= htmlspecialchars($member['role_in_project'], ENT_QUOTES, 'UTF-8') ?></span>
+                                <span class="tms-role-badge <?= $roleBadgeClass ?>"><?= htmlspecialchars($projectRoleLabels[$member['role_in_project']] ?? $member['role_in_project'], ENT_QUOTES, 'UTF-8') ?></span>
                             </td>
                             <?php if ($currentProjectRole === 'Team Lead'): ?>
                             <td class="text-right">
@@ -1124,8 +1289,8 @@ if ($currentProjectRole !== null) {
                     </div>
                     <label class="mt-5 block text-sm font-semibold text-slate-700" for="edit-role-in-project">Vai trò</label>
                     <select id="edit-role-in-project" name="role_in_project" required class="mt-1 w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm">
-                        <option value="Translator">Translator</option>
-                        <option value="Reviewer">Reviewer</option>
+                        <option value="Translator">Biên dịch viên</option>
+                        <option value="Reviewer">Kiểm duyệt viên</option>
                     </select>
                     <div class="mt-6 flex justify-end gap-2">
                         <button type="button" class="tms-modal-cancel" data-close-edit-modal>Hủy</button>
@@ -1266,9 +1431,10 @@ if ($currentProjectRole !== null) {
                         <span>Trạng thái</span>
                         <select name="status">
                             <option value="">Tất cả trạng thái</option>
-                            <option value="translated" <?= $statusFilter === 'translated' ? 'selected' : '' ?>>Draft / Translated</option>
-                            <option value="approved" <?= $statusFilter === 'approved' ? 'selected' : '' ?>>Approved</option>
-                            <option value="needs_review" <?= $statusFilter === 'needs_review' ? 'selected' : '' ?>>Needs Review / Rejected</option>
+                            <option value="draft" <?= in_array($statusFilter, ['draft', 'translated'], true) ? 'selected' : '' ?>>Bản nháp</option>
+                            <option value="approved" <?= $statusFilter === 'approved' ? 'selected' : '' ?>>Đã duyệt</option>
+                            <option value="rejected" <?= $statusFilter === 'rejected' ? 'selected' : '' ?>>Từ chối</option>
+                            <option value="needs_review" <?= $statusFilter === 'needs_review' ? 'selected' : '' ?>>Cần kiểm tra</option>
                         </select>
                     </label>
                     <label class="tms-search-field">
@@ -1310,12 +1476,15 @@ if ($currentProjectRole !== null) {
                                         <td class="px-6 py-4 align-middle">
                                             <select name="status" data-status="<?= htmlspecialchars($row['status'], ENT_QUOTES, 'UTF-8') ?>" class="tms-status tms-status-<?= htmlspecialchars($row['status'], ENT_QUOTES, 'UTF-8') ?> px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" onchange="this.className = 'tms-status tms-status-' + this.value + ' px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500'">
                                                 <?php if ($canReviewCurrentProject): ?>
-                                                    <option value="draft" <?= $row['status'] === 'draft' ? 'selected' : '' ?>>Draft</option>
-                                                    <option value="approved" <?= $row['status'] === 'approved' ? 'selected' : '' ?>>Approved</option>
-                                                    <option value="rejected" <?= $row['status'] === 'rejected' ? 'selected' : '' ?>>Rejected</option>
-                                                    <option value="needs_review" <?= $row['status'] === 'needs_review' ? 'selected' : '' ?>>Needs Review</option>
+                                                    <option value="draft" <?= $row['status'] === 'draft' ? 'selected' : '' ?>>Bản nháp</option>
+                                                    <option value="approved" <?= $row['status'] === 'approved' ? 'selected' : '' ?>>Đã duyệt</option>
+                                                    <option value="rejected" <?= $row['status'] === 'rejected' ? 'selected' : '' ?>>Từ chối</option>
+                                                    <option value="needs_review" <?= $row['status'] === 'needs_review' ? 'selected' : '' ?>>Cần kiểm tra</option>
+                                                <?php elseif ($currentProjectRole === 'Translator'): ?>
+                                                    <option value="draft" <?= $row['status'] === 'draft' ? 'selected' : '' ?>>Bản nháp</option>
+                                                    <option value="needs_review" <?= $row['status'] === 'needs_review' || in_array($row['status'], ['approved', 'rejected'], true) ? 'selected' : '' ?>>Cần kiểm tra</option>
                                                 <?php else: ?>
-                                                    <option value="draft">Draft</option>
+                                                    <option value="draft">Bản nháp</option>
                                                 <?php endif; ?>
                                             </select>
                                         </td>
@@ -1340,7 +1509,7 @@ if ($currentProjectRole !== null) {
                     <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
                         <div>
                             <h2 class="text-lg font-semibold">Lịch sử chỉnh sửa</h2>
-                            <p class="text-sm text-slate-500">Chỉ Team Lead và Reviewer có thể hoàn tác.</p>
+                            <p class="text-sm text-slate-500">Chỉ Trưởng nhóm và Kiểm duyệt viên có thể hoàn tác.</p>
                         </div>
                         <a class="tms-filter-reset" href="<?= $workspaceAction ?>&amp;locale=<?= rawurlencode($currentLocale) ?>&amp;version_id=<?= (int)$versionId ?>">Đóng lịch sử</a>
                     </div>

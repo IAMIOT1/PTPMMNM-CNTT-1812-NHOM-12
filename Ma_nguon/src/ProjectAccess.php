@@ -57,4 +57,22 @@ final class ProjectAccess
             true
         );
     }
+
+    public static function canSetTranslationStatus(
+        PgSql\Connection $connection,
+        int $projectId,
+        int $userId,
+        string $status
+    ): bool {
+        if (!in_array($status, ['draft', 'approved', 'rejected', 'needs_review'], true)) {
+            return false;
+        }
+
+        $role = self::roleFor($connection, $projectId, $userId);
+        if ($role === 'Translator') {
+            return in_array($status, ['draft', 'needs_review'], true);
+        }
+
+        return in_array($role, ['Reviewer', 'Team Lead'], true);
+    }
 }

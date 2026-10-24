@@ -157,6 +157,43 @@ try {
          VALUES ($1, $2, $3)',
         [$projectId, (int)$users['reviewer']['id'], 'Reviewer']
     );
+    same(
+        ProjectAccess::canSetTranslationStatus($connection, $projectId, (int)$users['translator']['id'], 'draft'),
+        true,
+        'translator-can-set-draft'
+    );
+    same(
+        ProjectAccess::canSetTranslationStatus($connection, $projectId, (int)$users['translator']['id'], 'needs_review'),
+        true,
+        'translator-can-request-review'
+    );
+    same(
+        ProjectAccess::canSetTranslationStatus($connection, $projectId, (int)$users['translator']['id'], 'approved'),
+        false,
+        'translator-cannot-approve'
+    );
+    same(
+        ProjectAccess::canSetTranslationStatus($connection, $projectId, (int)$users['translator']['id'], 'rejected'),
+        false,
+        'translator-cannot-reject'
+    );
+    foreach (['approved', 'rejected', 'draft', 'needs_review'] as $status) {
+        same(
+            ProjectAccess::canSetTranslationStatus($connection, $projectId, (int)$users['reviewer']['id'], $status),
+            true,
+            'reviewer-can-set-' . $status
+        );
+        same(
+            ProjectAccess::canSetTranslationStatus($connection, $projectId, (int)$users['lead']['id'], $status),
+            true,
+            'team-lead-can-set-' . $status
+        );
+    }
+    same(
+        ProjectAccess::canSetTranslationStatus($connection, $projectId, (int)$users['translator']['id'], 'unknown'),
+        false,
+        'unsupported-translation-status-is-rejected'
+    );
     queryParams(
         $connection,
         "INSERT INTO projects (name) VALUES ('Unrelated project role test')",
