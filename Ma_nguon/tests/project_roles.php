@@ -34,18 +34,18 @@ try {
     $registrationRes = queryParams(
         $connection,
         "INSERT INTO users (username, email, password_hash, role)
-         VALUES ($1, $2, $3, 'translator')
+         VALUES ($1, $2, $3, 'user')
          ON CONFLICT DO NOTHING
          RETURNING id, role, password_hash",
         [$registeredUsername, $registeredEmail, $registeredHash]
     );
     $registeredUser = pg_fetch_assoc($registrationRes);
-    same($registeredUser['role'], 'translator', 'registration-assigns-normal-role');
+    same($registeredUser['role'], 'user', 'registration-assigns-normal-role');
     same(password_verify($registeredPassword, $registeredUser['password_hash']), true, 'registration-stores-bcrypt-hash');
     $duplicateRes = queryParams(
         $connection,
         "INSERT INTO users (username, email, password_hash, role)
-         VALUES ($1, $2, $3, 'translator')
+         VALUES ($1, $2, $3, 'user')
          ON CONFLICT DO NOTHING
          RETURNING id",
         [strtoupper($registeredUsername), 'other_' . $registeredEmail, $registeredHash]
@@ -77,7 +77,7 @@ try {
         ]
     );
     $users['admin'] = pg_fetch_assoc($adminRes);
-    same($users['translator']['role'], 'translator', 'new-user-is-not-system-admin');
+    same($users['translator']['role'], 'user', 'new-user-is-not-system-admin');
     same(AuthManager::safeReturnPath('/profile.php'), '/profile.php', 'login-return-path-preserves-local-page');
     same(AuthManager::safeReturnPath('//example.test/'), '/index.php', 'login-return-path-rejects-external-host');
     same(AuthManager::safeReturnPath('/\\example.test/'), '/index.php', 'login-return-path-rejects-backslash-host');
@@ -238,12 +238,21 @@ try {
     $lead = ['id' => (int)$users['lead']['id'], 'role' => $users['lead']['role']];
     $admin = ['id' => (int)$users['admin']['id'], 'role' => $users['admin']['role']];
     same(ProjectAccess::canTranslate($connection, $projectId, $translator), true, 'translator-can-translate');
+    same(ProjectAccess::canTranslate($connection, $projectId, $reviewer), true, 'reviewer-can-run-member-translation-actions');
+    same(ProjectAccess::canTranslate($connection, $projectId, $lead), true, 'team-lead-can-run-member-translation-actions');
     same(ProjectAccess::canReview($connection, $projectId, $translator), false, 'translator-cannot-review');
     same(ProjectAccess::canReview($connection, $projectId, $reviewer), true, 'reviewer-can-review');
     same(ProjectAccess::canManageMembers($connection, $projectId, $lead), true, 'team-lead-can-manage-members');
     same(ProjectAccess::canManageMembers($connection, $projectId, $reviewer), false, 'reviewer-cannot-manage-members');
-    same(ProjectAccess::canManageMembers($connection, $projectId, $admin), true, 'system-admin-can-manage-members');
+    same(ProjectAccess::canManageMembers($connection, $projectId, $admin), false, 'system-admin-without-team-lead-role-cannot-manage-members');
     same(ProjectAccess::canTranslate($connection, $projectId, $admin), false, 'admin-still-needs-project-membership-to-translate');
+    same(ProjectAccess::canManageSourceVersion($connection, $projectId, (int)$users['lead']['id']), true, 'team-lead-can-manage-source-version');
+    same(ProjectAccess::canManageSourceVersion($connection, $projectId, (int)$users['reviewer']['id']), false, 'reviewer-cannot-manage-source-version');
+    same(ProjectAccess::canManageSourceVersion($connection, $projectId, (int)$users['translator']['id']), false, 'translator-cannot-manage-source-version');
+    same(ProjectAccess::canManageRelease($connection, $projectId, (int)$users['lead']['id']), true, 'team-lead-can-manage-release');
+    same(ProjectAccess::canManageRelease($connection, $projectId, (int)$users['reviewer']['id']), false, 'reviewer-cannot-manage-release');
+    same(ProjectAccess::canManageRelease($connection, $projectId, (int)$users['translator']['id']), false, 'translator-cannot-manage-release');
+    same(ProjectAccess::canManageRelease($connection, $projectId, (int)$users['admin']['id']), false, 'system-admin-without-project-role-cannot-manage-release');
 
     $versionRes = queryParams(
         $connection,
@@ -265,6 +274,32 @@ try {
         [$stringId, (int)$users['translator']['id']]
     );
     $translationId = (int)pg_fetch_result($translationRes, 0, 'id');
+    $sharedTranslationRes = queryParams(
+        $connection,
+        'SELECT translated_text FROM translations WHERE string_id = $1 AND locale = $2',
+        [$stringId, 'en']
+    );
+    same(pg_fetch_result($sharedTranslationRes, 0, 'translated_text'), 'Hello', 'translation-text-is-shared-across-members');
+    same(
+        ProjectAccess::canEditTranslation($connection, $projectId, (int)$users['translator']['id']),
+        true,
+        'translator-can-edit-any-project-key'
+    );
+    same(
+        ProjectAccess::canEditTranslation($connection, $projectId, (int)$users['reviewer']['id']),
+        true,
+        'reviewer-can-edit-any-project-key'
+    );
+    same(
+        ProjectAccess::canEditTranslation($connection, $projectId, (int)$users['lead']['id']),
+        true,
+        'team-lead-can-edit-any-project-key'
+    );
+    same(
+        ProjectAccess::canEditTranslation($connection, $projectId, (int)$users['admin']['id']),
+        false,
+        'non-member-cannot-edit-project-key'
+    );
 
     $denied = false;
     try {

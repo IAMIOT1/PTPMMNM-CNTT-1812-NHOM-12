@@ -5,9 +5,12 @@ class JsonParser {
     public static function flatten(array $data, string $prefix = ''): array {
         $result = [];
         foreach ($data as $key => $value) {
-            $fullKey = $prefix === '' ? $key : $prefix . '.' . $key;
+            $segment = str_replace(['\\', '.'], ['\\\\', '\\.'], (string)$key);
+            $fullKey = $prefix === '' ? $segment : $prefix . '.' . $segment;
             if (is_array($value)) {
-                $result = array_merge($result, self::flatten($value, $fullKey));
+                foreach (self::flatten($value, $fullKey) as $nestedKey => $nestedValue) {
+                    $result[$nestedKey] = $nestedValue;
+                }
             } else {
                 $result[$fullKey] = (string)$value;
             }
@@ -18,7 +21,7 @@ class JsonParser {
     public static function unflatten(array $flatArray): array {
         $result = [];
         foreach ($flatArray as $key => $value) {
-            $keys = explode('.', $key);
+            $keys = self::splitPath((string)$key);
             $current = &$result;
             foreach ($keys as $i => $k) {
                 if ($i === count($keys) - 1) {
@@ -32,5 +35,30 @@ class JsonParser {
             }
         }
         return $result;
+    }
+
+    private static function splitPath(string $path): array {
+        $segments = [];
+        $segment = '';
+        $escaped = false;
+        for ($i = 0, $length = strlen($path); $i < $length; $i++) {
+            $character = $path[$i];
+            if ($escaped) {
+                $segment .= $character;
+                $escaped = false;
+            } elseif ($character === '\\') {
+                $escaped = true;
+            } elseif ($character === '.') {
+                $segments[] = $segment;
+                $segment = '';
+            } else {
+                $segment .= $character;
+            }
+        }
+        if ($escaped) {
+            $segment .= '\\';
+        }
+        $segments[] = $segment;
+        return $segments;
     }
 }

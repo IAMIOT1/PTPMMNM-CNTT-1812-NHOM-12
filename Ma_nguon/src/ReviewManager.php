@@ -67,7 +67,8 @@ final class ReviewManager {
                 (int)$translationOwner['user_id'],
                 $status === 'approved'
                     ? 'Bản dịch của bạn đã được duyệt.'
-                    : 'Bản dịch của bạn cần được xem xét và chỉnh sửa.'
+                    : 'Bản dịch của bạn cần được xem xét và chỉnh sửa.',
+                'comments'
             );
         }
 

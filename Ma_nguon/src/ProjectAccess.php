@@ -17,8 +17,12 @@ final class ProjectAccess
     ): ?string {
         $result = queryParams(
             $connection,
-            'SELECT role_in_project FROM project_members
-             WHERE project_id = $1 AND user_id = $2',
+            'SELECT pm.role_in_project
+             FROM project_members pm
+             JOIN users u ON u.id = pm.user_id
+             WHERE pm.project_id = $1
+               AND pm.user_id = $2
+               AND u.role <> \'admin\'',
             [$projectId, $userId]
         );
         $row = pg_fetch_assoc($result);
@@ -30,8 +34,7 @@ final class ProjectAccess
         int $projectId,
         array $user
     ): bool {
-        return self::isSystemAdmin($user) ||
-            self::roleFor($connection, $projectId, (int)$user['id']) === 'Team Lead';
+        return self::roleFor($connection, $projectId, (int)$user['id']) === 'Team Lead';
     }
 
     public static function canTranslate(
@@ -74,5 +77,36 @@ final class ProjectAccess
         }
 
         return in_array($role, ['Reviewer', 'Team Lead'], true);
+    }
+
+    public static function canEditTranslation(
+        PgSql\Connection $connection,
+        int $projectId,
+        int $userId
+    ): bool {
+        return self::canEditTranslationForRole(
+            self::roleFor($connection, $projectId, $userId)
+        );
+    }
+
+    public static function canEditTranslationForRole(?string $role): bool
+    {
+        return in_array($role, ['Translator', 'Reviewer', 'Team Lead'], true);
+    }
+
+    public static function canManageSourceVersion(
+        PgSql\Connection $connection,
+        int $projectId,
+        int $userId
+    ): bool {
+        return self::roleFor($connection, $projectId, $userId) === 'Team Lead';
+    }
+
+    public static function canManageRelease(
+        PgSql\Connection $connection,
+        int $projectId,
+        int $userId
+    ): bool {
+        return self::roleFor($connection, $projectId, $userId) === 'Team Lead';
     }
 }

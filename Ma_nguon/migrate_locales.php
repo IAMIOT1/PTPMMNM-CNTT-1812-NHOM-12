@@ -19,7 +19,12 @@ try {
         "INSERT INTO locales (code, name) VALUES
             ('vi', 'Tiếng Việt'),
             ('en', 'English'),
-            ('ja', 'Japanese')
+            ('ja', 'Japanese'),
+            ('zh', '中文'),
+            ('ko', '한국어'),
+            ('fr', 'Français'),
+            ('de', 'Deutsch'),
+            ('es', 'Español')
          ON CONFLICT (code) DO NOTHING",
         []
     );

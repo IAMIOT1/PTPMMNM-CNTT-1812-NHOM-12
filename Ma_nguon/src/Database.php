@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/EnvLoader.php';
 // Dùng lại biến môi trường cho lệnh psql ngoài PHP. Không nạp mã PHP cấu hình.
 $configPath = __DIR__ . '/../.local/db.json';
 if (is_file($configPath)) {
@@ -35,7 +36,10 @@ function queryParams(PgSql\Connection $connection, string $sql, array $params): 
 {
     $result = @pg_query_params($connection, $sql, $params);
     if ($result === false) {
-        throw new RuntimeException('DATABASE_OPERATION_FAILED');
+        $error = trim((string)pg_last_error($connection));
+        throw new RuntimeException(
+            $error !== '' ? 'DATABASE_OPERATION_FAILED: ' . $error : 'DATABASE_OPERATION_FAILED'
+        );
     }
     return $result;
 }

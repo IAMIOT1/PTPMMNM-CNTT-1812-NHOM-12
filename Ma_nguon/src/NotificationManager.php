@@ -41,8 +41,29 @@ final class NotificationManager
     public static function create(
         PgSql\Connection $connection,
         int $userId,
-        string $message
+        string $message,
+        ?string $category = null
     ): void {
+        if ($category !== null) {
+            $preferenceColumn = match ($category) {
+                'projects' => 'notify_new_projects',
+                'comments' => 'notify_comments',
+                default => throw new InvalidArgumentException('NOTIFICATION_CATEGORY_INVALID'),
+            };
+            $preference = queryParams(
+                $connection,
+                "SELECT COALESCE(
+                    (SELECT {$preferenceColumn}
+                     FROM user_notification_preferences
+                     WHERE user_id = $1),
+                    TRUE
+                 )",
+                [$userId]
+            );
+            if (pg_fetch_result($preference, 0, 0) !== 't') {
+                return;
+            }
+        }
         queryParams(
             $connection,
             'INSERT INTO notifications (user_id, message) VALUES ($1, $2)',

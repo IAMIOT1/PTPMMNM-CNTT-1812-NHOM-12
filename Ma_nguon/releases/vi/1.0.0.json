@@ -1,0 +1,21 @@
+{
+    "app": {
+        "actions": {
+            "cancel": "Hủy bỏ",
+            "confirm_delete": "Are you sure you want to delete {item_name}?",
+            "delete": "Delete this item",
+            "save": "Save changes"
+        },
+        "nav": {
+            "dashboard": "mọiuhhubhhu",
+            "profile": "Hồ sơ cá nhân",
+            "settings": "Cài đặt hệ thống"
+        },
+        "title": "Hệ thống quản lý doanh nghiệp",
+        "welcome_message": "Xin chào, {name}! Bạn có {count} thông báo mới cần xử lý."
+    },
+    "errors": {
+        "not_found": "Không tìm thấy tài nguyên cho khóa {key}.",
+        "unauthorized": "Bạn không có quyền truy cập trang này, {name}."
+    }
+}

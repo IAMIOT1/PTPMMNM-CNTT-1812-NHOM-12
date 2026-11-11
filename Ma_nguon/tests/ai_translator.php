@@ -28,8 +28,9 @@ if ($pid === -1) {
 }
 
 if ($pid === 0) {
-    $modelPath = '/v1beta/models/gemini-3.8-flash:generateContent';
-    for ($requestIndex = 0; $requestIndex < 3; $requestIndex++) {
+    $primaryModelPath = '/v1beta/models/gemini-3.8-flash:generateContent';
+    $fallbackModelPath = '/v1beta/models/gemini-3.6-flash:generateContent';
+    for ($requestIndex = 0; $requestIndex < 10; $requestIndex++) {
         $client = stream_socket_accept($server, 10);
         if ($client === false) {
             fclose($server);
@@ -47,11 +48,27 @@ if ($pid === 0) {
         $request = json_decode((string)$requestBody, true);
         $prompt = (string)($request['systemInstruction']['parts'][0]['text'] ?? '');
         $requestLine = strtok($headers, "\r\n");
-        $expectedRequestPrefix = 'POST ' . $modelPath . '?key=test-gemini-key ';
+        $expectedModelPath = $requestIndex === 5 || $requestIndex === 7
+            ? $fallbackModelPath
+            : $primaryModelPath;
+        $expectedRequestPrefix = 'POST ' . $expectedModelPath . '?key=test-gemini-key ';
         $isValidRequest = is_string($requestLine) && str_starts_with($requestLine, $expectedRequestPrefix);
 
-        if ($requestIndex < 2) {
-            $expectedLocale = $requestIndex === 0 ? 'en' : 'ja';
+        if ($requestIndex === 9) {
+            $contents = $request['contents'] ?? [];
+            $isValidChat = $isValidRequest &&
+                str_contains($prompt, 'AI assistant inside a translation management system') &&
+                ($contents[0]['role'] ?? '') === 'user' &&
+                ($contents[0]['parts'][0]['text'] ?? '') === 'How do I review translations?' &&
+                ($request['generationConfig']['temperature'] ?? null) === 0.3;
+            $status = $isValidChat ? '200 OK' : '400 Bad Request';
+            $responseBody = $isValidChat
+                ? json_encode(['candidates' => [[
+                    'content' => ['parts' => [['text' => 'Review the draft and approve it.']]]
+                ]]])
+                : json_encode(['error' => ['message' => 'mock chat request validation failed']]);
+        } elseif ($requestIndex < 2 || $requestIndex === 5 || $requestIndex === 7) {
+            $expectedLocale = $requestIndex === 1 ? 'ja' : 'en';
             $hasExpectedPrompt = str_contains($prompt, $expectedLocale) &&
                 ($expectedLocale === 'en'
                     ? str_contains($prompt, '{name}') &&
@@ -64,7 +81,9 @@ if ($pid === 0) {
                 ? json_encode([
                     'candidates' => [[
                         'content' => ['parts' => [[
-                            'text' => $expectedLocale === 'en' ? 'Save {name}' : 'これを削除 {item_name}'
+                            'text' => $expectedLocale === 'en'
+                                ? 'Save {name}'
+                                : 'これを削除 {item_name}'
                         ]]]
                     ]]
                 ], JSON_UNESCAPED_UNICODE)
@@ -75,6 +94,16 @@ if ($pid === 0) {
                         'line' => $requestLine,
                         'expected' => $expectedRequestPrefix
                     ])]]);
+        } elseif ($requestIndex >= 2 && $requestIndex <= 4) {
+            $status = '503 Service Unavailable';
+            $responseBody = json_encode([
+                'error' => ['message' => 'Service temporarily unavailable.']
+            ]);
+        } elseif ($requestIndex === 6) {
+            $status = '404 Not Found';
+            $responseBody = json_encode([
+                'error' => ['message' => 'Model was not found or is not supported for generateContent.']
+            ]);
         } else {
             $status = '429 Too Many Requests';
             $responseBody = json_encode([
@@ -125,6 +154,16 @@ try {
         'これを削除 {item_name}',
         'gemini-single-endpoint-uses-target-locale'
     );
+    same(
+        $translator->translateText('Save {name}', 'en'),
+        'Save {name}',
+        'gemini-overload-503-falls-back-to-another-flash-model'
+    );
+    same(
+        $translator->translateText('Save {name}', 'en'),
+        'Save {name}',
+        'gemini-unknown-model-404-falls-back-without-retrying-same-model'
+    );
 } catch (Throwable $e) {
     $failed++;
     echo 'FAIL gemini-rest-request: ' . $e->getMessage() . "\n";
@@ -141,6 +180,18 @@ try {
         true,
         'gemini-single-endpoint-reports-provider-errors-with-key-redacted'
     );
+}
+
+same(
+    $translator->chat([['role' => 'user', 'text' => 'How do I review translations?']], 'en'),
+    'Review the draft and approve it.',
+    'gemini-chat-sends-tms-context-and-returns-assistant-response'
+);
+try {
+    $translator->chat([['role' => 'assistant', 'text' => 'Unexpected start']], 'en');
+    same(false, true, 'gemini-chat-rejects-invalid-history');
+} catch (InvalidArgumentException $exception) {
+    same($exception->getMessage(), 'AI_CHAT_INVALID_HISTORY', 'gemini-chat-rejects-invalid-history');
 }
 
 try {

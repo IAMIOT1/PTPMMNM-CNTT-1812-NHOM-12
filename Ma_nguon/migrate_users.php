@@ -10,7 +10,7 @@ try {
         username VARCHAR(50) UNIQUE NOT NULL,
         email VARCHAR(254) UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
-        role VARCHAR(20) NOT NULL DEFAULT 'translator',
+        role VARCHAR(20) NOT NULL DEFAULT 'user',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );";
 

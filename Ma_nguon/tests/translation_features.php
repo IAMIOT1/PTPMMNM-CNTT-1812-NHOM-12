@@ -5,6 +5,7 @@ require __DIR__ . '/helper.php';
 require __DIR__ . '/../src/Database.php';
 require __DIR__ . '/../src/NotificationManager.php';
 require __DIR__ . '/../src/TranslationPackageExporter.php';
+require __DIR__ . '/../src/RemoteContentService.php';
 
 try {
     $connection = db();
@@ -81,11 +82,46 @@ try {
     $package = (new TranslationPackageExporter($connection))->export($versionId, 'en');
     same(json_decode($package, true), ['menu' => ['play' => 'Begin']], 'translation-export-preserves-nested-json');
 
+    queryParams($connection, "UPDATE translations SET status = 'approved' WHERE id = $1", [$translationId]);
+    $draftStringRes = queryParams(
+        $connection,
+        'INSERT INTO strings (project_id, source_version_id, key_path, source_text)
+         VALUES ($1, $2, $3, $4) RETURNING id',
+        [$projectId, $versionId, 'menu.stop', 'Stop']
+    );
+    queryParams(
+        $connection,
+        "INSERT INTO translations (string_id, locale, translated_text, status, user_id)
+         VALUES ($1, 'en', 'Halt', 'draft', $2)",
+        [(int)pg_fetch_result($draftStringRes, 0, 'id'), $userId]
+    );
+    $approvedPackage = RemoteContentService::approvedPackage($connection, $versionId, 'en');
+    same(
+        json_decode($approvedPackage, true),
+        ['menu' => ['play' => 'Begin']],
+        'sync-package-includes-only-approved-translations'
+    );
+
     NotificationManager::create($connection, $userId, 'Test notification');
     $manager = new NotificationManager($connection);
     same($manager->unreadCount($userId), 1, 'notification-unread-count');
     $recent = $manager->recentForUser($userId);
     same($recent[0]['message'], 'Test notification', 'notification-recent-list');
+    queryParams(
+        $connection,
+        'INSERT INTO user_notification_preferences (user_id, notify_new_projects, notify_comments)
+         VALUES ($1, FALSE, FALSE)',
+        [$userId]
+    );
+    NotificationManager::create($connection, $userId, 'Muted comment notification', 'comments');
+    same($manager->unreadCount($userId), 1, 'disabled-comment-notification-is-not-created');
+    queryParams(
+        $connection,
+        'UPDATE user_notification_preferences SET notify_comments = TRUE WHERE user_id = $1',
+        [$userId]
+    );
+    NotificationManager::create($connection, $userId, 'Enabled comment notification', 'comments');
+    same($manager->unreadCount($userId), 2, 'enabled-comment-notification-is-created');
     queryParams($connection, 'UPDATE notifications SET is_read = TRUE WHERE user_id = $1', [$userId]);
     same($manager->unreadCount($userId), 0, 'notification-marked-read');
 } catch (Throwable $e) {

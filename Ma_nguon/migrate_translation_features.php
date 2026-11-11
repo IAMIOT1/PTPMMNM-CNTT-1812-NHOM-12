@@ -56,7 +56,8 @@ BEGIN
         INSERT INTO translation_history
             (translation_id, old_text, new_text, changed_by_user_id)
         VALUES (NEW.id, NULL, NEW.translated_text, actor_id);
-    ELSIF OLD.translated_text IS DISTINCT FROM NEW.translated_text THEN
+    ELSIF OLD.translated_text IS DISTINCT FROM NEW.translated_text
+       OR OLD.status IS DISTINCT FROM NEW.status THEN
         INSERT INTO translation_history
             (translation_id, old_text, new_text, changed_by_user_id)
         VALUES (NEW.id, OLD.translated_text, NEW.translated_text, actor_id);
@@ -70,7 +71,7 @@ SQL;
     queryParams(
         $connection,
         'CREATE TRIGGER translations_history_trigger
-         AFTER INSERT OR UPDATE OF translated_text ON translations
+         AFTER INSERT OR UPDATE OF translated_text, status ON translations
          FOR EACH ROW EXECUTE FUNCTION record_translation_text_history()',
         []
     );

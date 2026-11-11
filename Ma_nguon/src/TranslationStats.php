@@ -24,9 +24,10 @@ final class TranslationStats {
             ];
         }
 
-        // 2. Số lượng đã dịch và số lượng đã được phê duyệt
-        $sqlTrans = "SELECT COUNT(t.id) AS translated_count, 
-                            SUM(CASE WHEN t.status = 'approved' THEN 1 ELSE 0 END) AS approved_count
+        $sqlTrans = "SELECT
+                            COUNT(t.id) FILTER (WHERE t.translated_text IS NOT NULL AND t.translated_text <> '') AS translated_count,
+                            COUNT(t.id) FILTER (WHERE t.status = 'approved' AND t.translated_text IS NOT NULL AND t.translated_text <> '') AS approved_count,
+                            COUNT(t.id) FILTER (WHERE t.status <> 'approved' AND t.translated_text IS NOT NULL AND t.translated_text <> '') AS draft_count
                      FROM strings s
                      LEFT JOIN translations t ON t.string_id = s.id AND t.locale = $3
                      WHERE s.project_id = $1 AND s.source_version_id = $2";
@@ -36,12 +37,16 @@ final class TranslationStats {
 
         $translated = (int)$row['translated_count'];
         $approved = (int)$row['approved_count'];
+        $draft = (int)$row['draft_count'];
+        $empty = max(0, $total - $approved - $draft);
         $percentage = round(($translated / $total) * 100, 2);
 
         return [
             'total' => $total,
             'translated' => $translated,
             'approved' => $approved,
+            'draft' => $draft,
+            'empty' => $empty,
             'percentage' => $percentage
         ];
     }

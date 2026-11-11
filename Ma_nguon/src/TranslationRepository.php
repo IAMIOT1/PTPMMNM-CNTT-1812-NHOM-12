@@ -8,9 +8,25 @@ final class TranslationRepository {
     public function __construct(private PgSql\Connection $connection) {}
 
     /**
-     * Import a source version idempotently, preserving translations for unchanged keys.
+     * Replace the complete source payload for a version without carrying over old translations.
      */
-    public function importSourceVersion(int $projectId, string $versionNumber, array $nestedJson): int {
+    public function importSourceVersion(
+        int $projectId,
+        string $versionNumber,
+        array $nestedJson,
+        ?string $sourceUrl = null,
+        ?string $sourceHtml = null
+    ): int {
+        if ($sourceUrl !== null && (
+            strlen($sourceUrl) > 2048 ||
+            filter_var($sourceUrl, FILTER_VALIDATE_URL) === false
+        )) {
+            throw new InvalidArgumentException('SOURCE_URL_INVALID');
+        }
+        if ($sourceHtml !== null && strlen($sourceHtml) > 2097152) {
+            throw new InvalidArgumentException('SOURCE_HTML_TOO_LARGE');
+        }
+
         $nestedTransaction = pg_transaction_status($this->connection) !== PGSQL_TRANSACTION_IDLE;
         $transactionCommand = $nestedTransaction ? 'SAVEPOINT tms_source_import' : 'BEGIN';
         if (pg_query($this->connection, $transactionCommand) === false) {
@@ -26,7 +42,7 @@ final class TranslationRepository {
 
             $resVersion = queryParams(
                 $this->connection,
-                'SELECT id FROM source_versions
+                'SELECT id, frozen_at FROM source_versions
                  WHERE project_id = $1 AND version_number = $2
                  ORDER BY id DESC LIMIT 1',
                 [$projectId, $versionNumber]
@@ -34,6 +50,9 @@ final class TranslationRepository {
             $versionRow = pg_fetch_assoc($resVersion);
             if ($versionRow) {
                 $versionId = (int)$versionRow['id'];
+                if ($versionRow['frozen_at'] !== null) {
+                    throw new RuntimeException('SOURCE_VERSION_FROZEN');
+                }
             } else {
                 $resVersion = queryParams(
                     $this->connection,
@@ -44,91 +63,75 @@ final class TranslationRepository {
                 $versionId = (int)pg_fetch_result($resVersion, 0, 'id');
             }
 
-            $priorVersionRes = queryParams(
+            queryParams(
                 $this->connection,
-                'SELECT id FROM source_versions
-                 WHERE project_id = $1 AND id < $2
-                 ORDER BY id DESC LIMIT 1',
-                [$projectId, $versionId]
+                'UPDATE source_versions SET source_url = $1, source_html = $2 WHERE id = $3',
+                [$sourceUrl, $sourceHtml, $versionId]
             );
-            $priorVersionRow = pg_fetch_assoc($priorVersionRes);
-            $priorVersionId = $priorVersionRow ? (int)$priorVersionRow['id'] : null;
 
             $flatData = JsonParser::flatten($nestedJson);
-            $existingRes = queryParams(
-                $this->connection,
-                'SELECT key_path FROM strings WHERE source_version_id = $1',
-                [$versionId]
-            );
-            while ($existingRow = pg_fetch_assoc($existingRes)) {
-                if (!array_key_exists($existingRow['key_path'], $flatData)) {
-                    queryParams(
-                        $this->connection,
-                        'DELETE FROM strings WHERE source_version_id = $1 AND key_path = $2',
-                        [$versionId, $existingRow['key_path']]
-                    );
+            $baseline = [];
+            if ($versionRow) {
+                $baselineRes = queryParams(
+                    $this->connection,
+                    'SELECT key_path, source_text FROM strings WHERE source_version_id = $1',
+                    [$versionId]
+                );
+                while ($row = pg_fetch_assoc($baselineRes)) {
+                    $baseline[$row['key_path']] = $row['source_text'];
+                }
+            }
+            $changes = [];
+            foreach ($flatData as $keyPath => $sourceText) {
+                if (!array_key_exists($keyPath, $baseline)) {
+                    $changes[$keyPath] = ['added', null, $sourceText];
+                } elseif ($baseline[$keyPath] !== $sourceText) {
+                    $changes[$keyPath] = ['modified', $baseline[$keyPath], $sourceText];
+                }
+            }
+            foreach ($baseline as $keyPath => $sourceText) {
+                if (!array_key_exists($keyPath, $flatData)) {
+                    $changes[$keyPath] = ['deleted', $sourceText, null];
                 }
             }
 
+            queryParams(
+                $this->connection,
+                'DELETE FROM translations
+                 WHERE string_id IN (
+                     SELECT id FROM strings WHERE source_version_id = $1
+                 )',
+                [$versionId]
+            );
+            queryParams(
+                $this->connection,
+                'DELETE FROM strings WHERE source_version_id = $1',
+                [$versionId]
+            );
+
             foreach ($flatData as $keyPath => $sourceText) {
-                $oldRes = queryParams(
-                    $this->connection,
-                    'SELECT id, source_text FROM strings
-                     WHERE source_version_id = $1 AND key_path = $2',
-                    [$versionId, $keyPath]
-                );
-                $oldRow = pg_fetch_assoc($oldRes);
-                if ($oldRow && $oldRow['source_text'] !== $sourceText) {
-                    queryParams(
-                        $this->connection,
-                        "UPDATE translations
-                         SET status = 'needs_review', updated_at = clock_timestamp()
-                         WHERE string_id = $1",
-                        [(int)$oldRow['id']]
-                    );
-                }
-
-                $priorRow = null;
-                if (!$oldRow && $priorVersionId !== null) {
-                    $priorStringRes = queryParams(
-                        $this->connection,
-                        'SELECT id, source_text FROM strings
-                         WHERE source_version_id = $1 AND key_path = $2',
-                        [$priorVersionId, $keyPath]
-                    );
-                    $priorRow = pg_fetch_assoc($priorStringRes);
-                }
-
-                $stringRes = queryParams(
+                queryParams(
                     $this->connection,
                     'INSERT INTO strings (project_id, source_version_id, key_path, source_text)
                      VALUES ($1, $2, $3, $4)
-                     ON CONFLICT (source_version_id, key_path)
-                     DO UPDATE SET project_id = EXCLUDED.project_id,
-                                   source_text = EXCLUDED.source_text
-                     WHERE strings.source_text IS DISTINCT FROM EXCLUDED.source_text
                      RETURNING id',
                     [$projectId, $versionId, $keyPath, $sourceText]
                 );
+            }
 
-                $stringRow = $oldRow ?: pg_fetch_assoc($stringRes);
-                if ($priorRow && $stringRow) {
-                    queryParams(
-                        $this->connection,
-                        "INSERT INTO translations (string_id, locale, translated_text, status, updated_at, user_id)
-                         SELECT $1, locale, translated_text,
-                                CASE WHEN $2 = 'true' THEN 'needs_review' ELSE status END,
-                                clock_timestamp(), user_id
-                         FROM translations
-                         WHERE string_id = $3
-                         ON CONFLICT (string_id, locale) DO NOTHING",
-                        [
-                            (int)$stringRow['id'],
-                            $priorRow['source_text'] === $sourceText ? 'false' : 'true',
-                            (int)$priorRow['id']
-                        ]
-                    );
-                }
+            queryParams(
+                $this->connection,
+                'DELETE FROM source_version_changes WHERE source_version_id = $1',
+                [$versionId]
+            );
+            foreach ($changes as $keyPath => [$changeType, $oldText, $newText]) {
+                queryParams(
+                    $this->connection,
+                    'INSERT INTO source_version_changes
+                        (source_version_id, key_path, change_type, old_text, new_text)
+                     VALUES ($1, $2, $3, $4, $5)',
+                    [$versionId, $keyPath, $changeType, $oldText, $newText]
+                );
             }
 
             $commitCommand = $nestedTransaction
@@ -147,5 +150,21 @@ final class TranslationRepository {
             }
             throw $e;
         }
+    }
+
+    public function getVersionChanges(int $sourceVersionId): array {
+        $result = queryParams(
+            $this->connection,
+            'SELECT key_path, change_type, old_text, new_text
+             FROM source_version_changes
+             WHERE source_version_id = $1
+             ORDER BY CASE change_type WHEN \'added\' THEN 1 WHEN \'modified\' THEN 2 ELSE 3 END, key_path',
+            [$sourceVersionId]
+        );
+        $changes = [];
+        while ($row = pg_fetch_assoc($result)) {
+            $changes[] = $row;
+        }
+        return $changes;
     }
 }

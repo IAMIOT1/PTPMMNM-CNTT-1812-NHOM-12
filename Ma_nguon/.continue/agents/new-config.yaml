@@ -1,0 +1,13 @@
+name: Gemini Config
+version: 1.0.0
+schema: v1
+
+models:
+  - name: Gemini 2.5 Flash
+    provider: gemini
+    model: gemini-2.5-flash
+    apiKey: "AQ.Ab8RN6JHeNCuyE3gOwdBvkx4iERZjMNVcIodYtZKyY8_X6DtuQ"
+    roles:
+      - chat
+      - edit
+      - apply

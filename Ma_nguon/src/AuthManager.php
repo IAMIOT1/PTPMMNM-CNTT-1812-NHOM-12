@@ -13,27 +13,49 @@ if (session_status() === PHP_SESSION_NONE) {
 
 class AuthManager {
     private $conn;
+    private string $lastLoginError = '';
 
     public function __construct($conn) {
         $this->conn = $conn;
+        queryParams($this->conn, 'ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT TRUE', []);
+        queryParams($this->conn, 'ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code VARCHAR(6)', []);
     }
 
     /**
      * Xác thực đăng nhập người dùng
      */
     public function login(string $username, string $password): bool {
-        $res = queryParams($this->conn, "SELECT id, username, password_hash, role FROM users WHERE username = $1", [$username]);
+        $res = queryParams(
+            $this->conn,
+            'SELECT id, username, password_hash, role, is_verified
+             FROM users
+             WHERE username = $1 AND is_active = TRUE',
+            [$username]
+        );
         $user = pg_fetch_assoc($res);
 
         if ($user && password_verify($password, $user['password_hash'])) {
+            if ($user['is_verified'] !== 't') {
+                $this->lastLoginError = 'EMAIL_NOT_VERIFIED';
+                return false;
+            }
             session_regenerate_id(true);
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['role'] = $user['role'];
-            $_SESSION['user'] = $user['username'];
+            $_SESSION['user'] = [
+                'id' => (int)$user['id'],
+                'username' => (string)$user['username'],
+                'role' => (string)$user['role'],
+            ];
             return true;
         }
         return false;
+    }
+
+    public function lastLoginError(): string
+    {
+        return $this->lastLoginError;
     }
 
     /**
@@ -83,10 +105,30 @@ class AuthManager {
         if (!$this->isLoggedIn()) {
             return null;
         }
+        $result = queryParams(
+            $this->conn,
+            'SELECT id, username, email, role, is_active FROM users WHERE id = $1',
+            [(int)$_SESSION['user_id']]
+        );
+        $user = pg_fetch_assoc($result);
+        if (!$user || $user['is_active'] !== 't') {
+            self::destroySession();
+            return null;
+        }
+
+        $_SESSION['username'] = $user['username'];
+        $_SESSION['role'] = $user['role'];
+        $_SESSION['user'] = [
+            'id' => (int)$user['id'],
+            'username' => (string)$user['username'],
+            'role' => (string)$user['role'],
+        ];
         return [
-            'id' => (int)$_SESSION['user_id'],
-            'username' => (string)$_SESSION['username'],
-            'role' => (string)($_SESSION['role'] ?? 'translator')
+            'id' => (int)$user['id'],
+            'username' => (string)$user['username'],
+            'email' => (string)$user['email'],
+            'role' => (string)$user['role'],
+            'is_active' => true
         ];
     }
 

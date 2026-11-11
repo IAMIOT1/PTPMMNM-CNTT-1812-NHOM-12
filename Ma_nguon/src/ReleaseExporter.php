@@ -5,14 +5,27 @@ class ReleaseExporter {
     public function __construct(private PgSql\Connection $conn) {
     }
 
-    public function generateRelease(int $projectId, string $locale, string $versionNumber, string $outputPath): string {
-        $versionRes = queryParams(
-            $this->conn,
-            'SELECT id FROM source_versions
-             WHERE project_id = $1 AND version_number = $2
-             ORDER BY id DESC LIMIT 1',
-            [$projectId, $versionNumber]
-        );
+    public function generateRelease(
+        int $projectId,
+        string $locale,
+        string $versionNumber,
+        string $outputPath,
+        ?int $sourceVersionId = null
+    ): string {
+        $versionRes = $sourceVersionId === null
+            ? queryParams(
+                $this->conn,
+                'SELECT id FROM source_versions
+                 WHERE project_id = $1 AND version_number = $2
+                 ORDER BY id DESC LIMIT 1',
+                [$projectId, $versionNumber]
+            )
+            : queryParams(
+                $this->conn,
+                'SELECT id FROM source_versions
+                 WHERE id = $1 AND project_id = $2 AND version_number = $3',
+                [$sourceVersionId, $projectId, $versionNumber]
+            );
         $versionRow = pg_fetch_assoc($versionRes);
         if (!$versionRow) {
             throw new RuntimeException('SOURCE_VERSION_NOT_FOUND');
