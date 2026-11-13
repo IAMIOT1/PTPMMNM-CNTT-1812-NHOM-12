@@ -54,6 +54,10 @@ Khu thử có 96 ghế cố định, 68 khả dụng (16 VIP và 52 Tiêu chuẩ
 
 Không đưa ID demo, vé hoặc ghế vào form, Session, Cookie, CSDL hoặc test cũ. TODO sinh viên và đáp án giữ nguyên khác biệt. Không có backend bán vé, thanh toán hoặc gửi email.
 
+## TMS database connection
+
+The application uses PHP's native `pgsql` connection API. Set `DATABASE_URL` to the PostgreSQL URL provided by Render. For local VS Code runs, set `DATABASE_EXTERNAL_URL` (or `RENDER_EXTERNAL_DATABASE_URL`) to the Render external URL; the connector tries it if the primary URL is unreachable. Existing `.local/db.json` and `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD` settings remain the final local fallback. Keep all URLs and passwords in environment configuration, never in source control.
+
 ## TMS workflow setup
 
 For an existing TMS database, run the migrations in this order after the base schema and existing project/workflow migrations:

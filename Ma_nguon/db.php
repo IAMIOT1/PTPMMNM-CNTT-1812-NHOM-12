@@ -1,5 +1,8 @@
 <?php
-$conn = pg_connect("dbname=tms_db user=postgres");
+declare(strict_types=1);
+
+require_once __DIR__ . '/src/Database.php';
+$conn = db();
 
 if (!$conn) {
     die("Kết nối cơ sở dữ liệu thất bại!\n");

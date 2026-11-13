@@ -22,19 +22,34 @@ function db(): PgSql\Connection
         throw new RuntimeException('PGSQL_EXTENSION_MISSING');
     }
 
-    $databaseUrl = getenv('DATABASE_URL');
-    if (is_string($databaseUrl) && trim($databaseUrl) !== '') {
-        $connectionString = databaseConnectionStringFromUrl($databaseUrl);
-        $connection = @pg_connect($connectionString);
-        if (!$connection) {
-            throw new RuntimeException('DATABASE_UNAVAILABLE');
+    $databaseUrls = [];
+    foreach (['DATABASE_URL', 'DATABASE_EXTERNAL_URL', 'RENDER_EXTERNAL_DATABASE_URL'] as $key) {
+        $databaseUrl = getenv($key);
+        if ((!is_string($databaseUrl) || trim($databaseUrl) === '') && isset($_ENV[$key])) {
+            $databaseUrl = $_ENV[$key];
         }
-        return $connection;
+        if (is_string($databaseUrl) && trim($databaseUrl) !== '' && !in_array($databaseUrl, $databaseUrls, true)) {
+            $databaseUrls[] = trim($databaseUrl);
+        }
+    }
+
+    $urlConnectionFailed = false;
+    foreach ($databaseUrls as $databaseUrl) {
+        try {
+            $connection = @pg_connect(databaseConnectionStringFromUrl($databaseUrl));
+        } catch (Throwable) {
+            $urlConnectionFailed = true;
+            continue;
+        }
+        if ($connection) {
+            return $connection;
+        }
+        $urlConnectionFailed = true;
     }
 
     foreach (['PGHOST', 'PGDATABASE', 'PGUSER'] as $key) {
         if (!getenv($key)) {
-            throw new RuntimeException('DATABASE_CONFIG_MISSING');
+            throw new RuntimeException($urlConnectionFailed ? 'DATABASE_UNAVAILABLE' : 'DATABASE_CONFIG_MISSING');
         }
     }
     $connection = @pg_connect('connect_timeout=3');
