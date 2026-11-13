@@ -12,8 +12,13 @@ CREATE TABLE IF NOT EXISTS translation_memory (
     source_text TEXT NOT NULL,
     translated_text TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT unique_tm_entry UNIQUE (project_id, locale, source_text)
 )
+SQL, []);
+queryParams($conn, <<<'SQL'
+ALTER TABLE translation_memory
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 SQL, []);
 queryParams($conn, <<<'SQL'
 CREATE TABLE IF NOT EXISTS glossary (

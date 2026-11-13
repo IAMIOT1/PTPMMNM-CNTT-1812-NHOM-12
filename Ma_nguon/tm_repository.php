@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+ini_set('display_errors', '1');
+error_reporting(E_ALL);
+
 $wantsJson = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
     && (
         (string)($_POST['response_format'] ?? '') === 'json'
@@ -17,6 +20,7 @@ $sendJson = static function (array $payload, int $statusCode = 200): never {
     exit;
 };
 if ($wantsJson) {
+    header('Content-Type: application/json');
     ini_set('display_errors', '0');
     ob_start();
     set_error_handler(static function (int $severity, string $message, string $file, int $line): bool {
@@ -78,7 +82,7 @@ if (!$canManage) {
 $error = '';
 $success = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     if (!Csrf::isValid($_POST)) {
         if ($wantsJson) {
             $sendJson(['success' => false, 'message' => 'Phiên làm việc không hợp lệ. Tải lại trang và thử lại.'], 403);
@@ -94,61 +98,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit('Chỉ quản trị viên hoặc Trưởng nhóm mới có thể quản lý kho TM.');
     }
     try {
-        if (($_POST['action'] ?? '') === 'upload_tm_csv') {
-            $upload = $_FILES['tm_csv'] ?? [];
-            if (!is_array($upload)) {
-                throw new InvalidArgumentException('TM_REPOSITORY_UPLOAD_INVALID');
-            }
-            $uploadError = $upload['error'] ?? UPLOAD_ERR_NO_FILE;
-            if (!is_int($uploadError) || $uploadError !== UPLOAD_ERR_OK) {
-                throw new InvalidArgumentException(
-                    in_array($uploadError, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)
-                        ? 'TM_REPOSITORY_UPLOAD_TOO_LARGE'
-                        : 'TM_REPOSITORY_UPLOAD_INVALID'
-                );
-            }
-            if (!is_string($upload['tmp_name'] ?? null) || !is_string($upload['name'] ?? null)) {
-                throw new InvalidArgumentException('TM_REPOSITORY_UPLOAD_INVALID');
-            }
-            $result = $repository->importUploaded($upload['tmp_name'], $upload['name']);
-            if ($wantsJson) {
-                $path = $repository->resolveFilename($result['filename']);
-                $stat = stat($path);
-                if ($stat === false) {
-                    throw new RuntimeException('TM_REPOSITORY_FILE_STAT_FAILED');
-                }
-                $sendJson([
-                    'success' => true,
-                    'message' => "Đã nhập {$result['rows']} cặp câu vào kho TM.",
-                    'file' => [
-                        'name' => $result['filename'],
-                        'size' => (int)$stat['size'],
-                        'modified_at' => (int)$stat['mtime'],
-                        'rows' => $result['rows'],
-                    ],
-                ]);
-            }
-            $success = "Đã nhập {$result['rows']} cặp câu vào kho TM.";
-        } elseif (($_POST['action'] ?? '') === 'delete_tm_csv') {
+        if (($_POST['action'] ?? '') === 'delete_tm_csv') {
             $repository->delete((string)($_POST['filename'] ?? ''));
             $success = 'Đã xóa file khỏi kho lưu trữ.';
         }
     } catch (Throwable $exception) {
-        error_log('TM_REPOSITORY_ACTION_FAILED: ' . $exception->getMessage());
+        error_log('TM_REPOSITORY_DELETE_FAILED: ' . $exception->getMessage());
         if ($wantsJson) {
-            $message = match ($exception->getMessage()) {
-                'TM_REPOSITORY_UPLOAD_INVALID' => 'Vui lòng chọn file CSV hợp lệ để tải lên.',
-                'TM_REPOSITORY_CSV_EXTENSION_REQUIRED' => 'Chỉ chấp nhận tệp có đuôi .csv.',
-                'TM_REPOSITORY_UPLOAD_TOO_LARGE' => 'Tệp CSV trống hoặc vượt quá giới hạn 5 MB.',
-                'TM_REPOSITORY_CSV_EMPTY' => 'Tệp CSV không có dữ liệu hợp lệ.',
-                'TM_REPOSITORY_CSV_COLUMNS_REQUIRED' => 'CSV cần có các cột locale, source_text và target_text.',
-                'TM_REPOSITORY_STORAGE_NOT_WRITABLE' => 'Thư mục lưu trữ TM không có quyền ghi.',
-                default => 'Không thể nhập file TM. Vui lòng kiểm tra định dạng CSV và thử lại.',
-            };
-            $statusCode = $exception instanceof InvalidArgumentException ? 400 : 500;
-            $sendJson(['success' => false, 'message' => $message], $statusCode);
+            $sendJson(['success' => false, 'message' => $exception->getMessage()], 500);
         }
-        $error = 'Không thể xử lý file TM. Vui lòng kiểm tra định dạng CSV và thử lại.';
+        $error = 'Không thể xóa file TM.';
     }
 }
 
@@ -209,7 +168,7 @@ $files = $repository->listFiles();
             <h2 id="upload-heading" class="text-base font-semibold text-slate-900" data-i18n="tm.upload_heading">Thêm tệp vào kho TM</h2>
             <p class="mt-1 text-sm text-slate-500" data-i18n="tm.upload_description">Tệp CSV sẽ được nhập vào Translation Memory dùng chung.</p>
         </div>
-        <form id="tm-upload-form" method="post" enctype="multipart/form-data">
+        <form id="tm-upload-form" action="api_upload_tm.php" method="post" enctype="multipart/form-data">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
             <input type="hidden" name="action" value="upload_tm_csv">
             <label id="tm-dropzone" for="tm-csv-input" class="group flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/70 px-5 py-8 text-center transition hover:border-indigo-400 hover:bg-indigo-50/60 focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-100 sm:py-10">
@@ -263,7 +222,7 @@ $files = $repository->listFiles();
                 <tbody id="tm-files-list" class="divide-y divide-slate-100">
                 <?php foreach ($files as $file): ?>
                     <tr class="transition hover:bg-slate-50/70">
-                        <td class="px-5 py-4 sm:px-6"><div class="flex items-center gap-3"><span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-indigo-50 text-indigo-600"><svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.5 2A1.5 1.5 0 0 0 3 3.5v13A1.5 1.5 0 0 0 4.5 18h11a1.5 1.5 0 0 0 1.5-1.5V7l-5-5H4.5Zm7.25 1.81L15.19 7.25h-2.69a.75.75 0 0 1-.75-.75V3.81ZM6.75 11a.75.75 0 0 1 .75-.75h5a.75.75 0 0 1 0 1.5h-5a.75.75 0 0 1-.75-.75Zm.75 2.25a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-5Z" clip-rule="evenodd"/></svg></span><span class="truncate font-semibold text-slate-800" data-i18n-ignore><?= htmlspecialchars($file['name'], ENT_QUOTES, 'UTF-8') ?></span></div></td>
+                        <td class="px-5 py-4 sm:px-6"><div class="flex items-center gap-3"><span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-indigo-50 text-indigo-600"><svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.5 2A1.5 1.5 0 0 0 3 3.5v13A1.5 1.5 0 0 0 4.5 18h11a1.5 1.5 0 0 0 1.5-1.5V7l-5-5H4.5Zm7.25 1.81L15.19 7.25h-2.69a.75.75 0 0 1-.75-.75V3.81ZM6.75 11a.75.75 0 0 1 .75-.75h5a.75.75 0 0 1 0 1.5h-5a.75.75 0 0 1-.75-.75Zm.75 2.25a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-5Z" clip-rule="evenodd"/></svg></span><button type="button" class="cursor-pointer truncate text-left font-semibold text-indigo-700 hover:underline focus:outline-none focus:ring-2 focus:ring-indigo-500" data-tm-file="<?= htmlspecialchars($file['name'], ENT_QUOTES, 'UTF-8') ?>" data-i18n-ignore><?= htmlspecialchars($file['name'], ENT_QUOTES, 'UTF-8') ?></button></div></td>
                         <td class="whitespace-nowrap px-5 py-4 text-slate-600"><?= number_format($file['size']) ?> bytes</td>
                         <td class="whitespace-nowrap px-5 py-4 text-slate-600"><?= date('d/m/Y H:i', $file['modified_at']) ?></td>
                         <td class="whitespace-nowrap px-5 py-4 text-right">
@@ -283,79 +242,70 @@ $files = $repository->listFiles();
             </table>
         </div>
     </section>
+    <dialog id="tm-details-dialog" data-can-edit="<?= $canManage ? '1' : '0' ?>" data-csrf-token="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>" class="m-auto max-h-[90vh] w-[min(96vw,72rem)] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/50">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6">
+            <div class="min-w-0">
+                <h2 id="tm-details-title" class="truncate text-lg font-semibold">Chi tiết kho TM</h2>
+                <p id="tm-details-status" class="mt-1 text-sm text-slate-500" role="status" aria-live="polite"></p>
+            </div>
+            <button type="button" data-close-details class="grid h-9 w-9 shrink-0 place-items-center rounded-md text-slate-500 hover:bg-slate-100" aria-label="Đóng">
+                <svg aria-hidden="true" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M4.22 4.22a.75.75 0 0 1 1.06 0L10 8.94l4.72-4.72a.75.75 0 1 1 1.06 1.06L11.06 10l4.72 4.72a.75.75 0 1 1-1.06 1.06L10 11.06l-4.72 4.72a.75.75 0 1 1-1.06-1.06L8.94 10 4.22 5.28a.75.75 0 0 1 0-1.06Z"/></svg>
+            </button>
+        </div>
+        <div class="max-h-[72vh] overflow-auto">
+            <table class="w-full min-w-[760px] text-left text-sm">
+                <thead class="sticky top-0 border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
+                    <tr>
+                        <th class="w-24 px-4 py-3">Locale</th>
+                        <th class="w-[34%] px-4 py-3">Source text</th>
+                        <th class="w-[34%] px-4 py-3">Target text</th>
+                        <?php if ($canManage): ?><th class="w-24 px-4 py-3 text-right">Thao tác</th><?php endif; ?>
+                    </tr>
+                </thead>
+                <tbody id="tm-details-rows" class="divide-y divide-slate-100"></tbody>
+            </table>
+        </div>
+    </dialog>
 </main>
 <script src="tms-i18n.js" defer></script>
 <?php if ($canManage): ?>
 <script>
 (() => {
     const form = document.getElementById('tm-upload-form');
-    const status = document.getElementById('tm-upload-status');
-    const fileList = document.getElementById('tm-files-list');
-    const emptyState = document.getElementById('tm-files-empty');
     const fileInput = document.getElementById('tm-csv-input');
     const dropzone = document.getElementById('tm-dropzone');
     const fileSelection = document.getElementById('tm-file-selection');
-    const fileCount = document.getElementById('tm-file-count');
+    const status = document.getElementById('tm-upload-status');
+    const fileStatusList = document.getElementById('tm-upload-file-status');
     const progress = document.getElementById('tm-upload-progress');
     const progressLabel = document.getElementById('tm-upload-progress-label');
     const progressCount = document.getElementById('tm-upload-progress-count');
     const progressBar = document.getElementById('tm-upload-progress-bar');
-    const fileStatusList = document.getElementById('tm-upload-file-status');
-    if (!form || !status || !fileList || !emptyState || !fileInput || !dropzone || !fileSelection || !fileCount
-        || !progress || !progressLabel || !progressCount || !progressBar || !fileStatusList) return;
+    if (!form || !fileInput || !dropzone || !fileSelection || !status || !fileStatusList
+        || !progress || !progressLabel || !progressCount || !progressBar) return;
 
     const submitButton = form.querySelector('button[type="submit"]');
-    const setLocalizedText = (element, key, fallback, parameters = {}) => {
-        element.dataset.i18n = key;
-        ['count', 'size', 'current', 'total', 'name', 'uploaded'].forEach((name) => {
-            element.removeAttribute(`data-i18n-${name}`);
-        });
-        Object.entries(parameters).forEach(([name, value]) => {
-            element.setAttribute(`data-i18n-${name}`, String(value));
-        });
-        element.textContent = fallback.replace(/\{([a-z0-9_]+)\}/gi, (_, name) => String(parameters[name] ?? ''));
-    };
-    const clearLocalizedText = (element) => {
-        element.removeAttribute('data-i18n');
-        element.textContent = '';
-    };
-    const isValidFile = (file) => Boolean(
-        file && file.name.toLowerCase().endsWith('.csv') && file.size > 0 && file.size <= 5_000_000
-    );
+    const maxBytes = 5_000_000;
     const selectedFiles = () => Array.from(fileInput.files || []);
-    const setSelectedFiles = (files, rejectedFiles = []) => {
-        if (files.length === 0) {
-            setLocalizedText(fileSelection, 'tm.file_requirements', 'Định dạng CSV · Tối đa 5 MB mỗi file · Có thể chọn nhiều file');
-            if (submitButton) submitButton.disabled = true;
-            if (rejectedFiles.length > 0) {
-                setLocalizedText(status, 'tm.skipped_invalid_count', 'Đã bỏ qua {count} file không hợp lệ. Chỉ có thể tải file CSV tối đa 5 MB.', { count: rejectedFiles.length });
-                status.className = 'mt-3 text-sm text-red-700';
-            }
-            return;
-        }
-        const totalSize = files.reduce((total, file) => total + file.size, 0);
-        setLocalizedText(fileSelection, 'tm.selected_summary', '{count} file đã chọn · {size} MB tổng cộng', {
-            count: files.length,
-            size: (totalSize / 1024 / 1024).toFixed(2)
-        });
-        if (submitButton) submitButton.disabled = false;
-        if (rejectedFiles.length > 0) {
-            setLocalizedText(status, 'tm.skipped_non_csv_count', 'Đã bỏ qua {count} file không phải CSV hoặc vượt quá 5 MB.', { count: rejectedFiles.length });
-        } else {
-            clearLocalizedText(status);
-        }
-        status.className = rejectedFiles.length > 0 ? 'mt-3 text-sm text-amber-700' : 'mt-3 text-sm';
+    const showSelection = (files) => {
+        const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+        fileSelection.textContent = files.length
+            ? `${files.length} file đã chọn · ${(totalBytes / 1024 / 1024).toFixed(2)} MB`
+            : 'Định dạng CSV · Tối đa 5 MB mỗi file · Có thể chọn nhiều file';
+        if (submitButton) submitButton.disabled = files.length === 0;
     };
-    const storeSelectedFiles = (files) => {
-        const candidates = Array.from(files);
-        const validFiles = candidates.filter(isValidFile);
-        const rejectedFiles = candidates.filter((file) => !isValidFile(file));
+    const selectFiles = (source) => {
         const transfer = new DataTransfer();
-        validFiles.forEach((file) => transfer.items.add(file));
+        for (const file of Array.from(source || [])) {
+            if (!(file instanceof File)) return;
+            if (!file.name.toLowerCase().endsWith('.csv') || file.size === 0 || file.size > maxBytes) continue;
+            transfer.items.add(file);
+        }
         fileInput.files = transfer.files;
-        setSelectedFiles(validFiles, rejectedFiles);
+        showSelection(selectedFiles());
     };
-    fileInput.addEventListener('change', () => storeSelectedFiles(fileInput.files || []));
+
+    fileInput.addEventListener('change', () => selectFiles(fileInput.files));
     for (const eventName of ['dragenter', 'dragover']) {
         dropzone.addEventListener(eventName, (event) => {
             event.preventDefault();
@@ -368,27 +318,19 @@ $files = $repository->listFiles();
             dropzone.classList.remove('border-indigo-500', 'bg-indigo-50');
         });
     }
-    dropzone.addEventListener('drop', (event) => {
-        const files = Array.from(event.dataTransfer?.files || []);
-        if (files.length > 0) storeSelectedFiles(files);
-    });
+    dropzone.addEventListener('drop', (event) => selectFiles(event.dataTransfer?.files));
 
-    const appendUploadedFile = (file, csrfToken) => {
+    const appendFileRow = (file, csrfToken) => {
         const row = document.createElement('tr');
         row.className = 'transition hover:bg-slate-50/70';
         const nameCell = document.createElement('td');
         nameCell.className = 'px-5 py-4 sm:px-6';
-        const fileIdentity = document.createElement('div');
-        fileIdentity.className = 'flex items-center gap-3';
-        const fileIcon = document.createElement('span');
-        fileIcon.className = 'grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-indigo-50 text-indigo-600';
-        fileIcon.innerHTML = '<svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.5 2A1.5 1.5 0 0 0 3 3.5v13A1.5 1.5 0 0 0 4.5 18h11a1.5 1.5 0 0 0 1.5-1.5V7l-5-5H4.5Zm7.25 1.81L15.19 7.25h-2.69a.75.75 0 0 1-.75-.75V3.81ZM6.75 11a.75.75 0 0 1 .75-.75h5a.75.75 0 0 1 0 1.5h-5a.75.75 0 0 1-.75-.75Zm.75 2.25a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-5Z" clip-rule="evenodd"/></svg>';
-        const fileName = document.createElement('span');
-        fileName.className = 'truncate font-semibold text-slate-800';
-        fileName.dataset.i18nIgnore = '';
-        fileName.textContent = file.name;
-        fileIdentity.append(fileIcon, fileName);
-        nameCell.append(fileIdentity);
+        const fileButton = document.createElement('button');
+        fileButton.type = 'button';
+        fileButton.className = 'cursor-pointer truncate text-left font-semibold text-indigo-700 hover:underline';
+        fileButton.dataset.tmFile = file.name;
+        fileButton.textContent = file.name;
+        nameCell.append(fileButton);
         const sizeCell = document.createElement('td');
         sizeCell.className = 'whitespace-nowrap px-5 py-4 text-slate-600';
         sizeCell.textContent = `${Number(file.size).toLocaleString()} bytes`;
@@ -398,23 +340,15 @@ $files = $repository->listFiles();
         const actionsCell = document.createElement('td');
         actionsCell.className = 'whitespace-nowrap px-5 py-4 text-right';
         const download = document.createElement('a');
-        download.className = 'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 font-semibold text-indigo-600 transition hover:bg-indigo-50 hover:text-indigo-700';
         download.href = `?action=download&filename=${encodeURIComponent(file.name)}`;
-        download.innerHTML = '<svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 2a.75.75 0 0 1 .75.75v7.19l2.22-2.22a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-3.5-3.5a.75.75 0 1 1 1.06-1.06l2.22 2.22V2.75A.75.75 0 0 1 10 2ZM3.5 13a.75.75 0 0 1 .75.75v2.75h11.5v-2.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-.75.75h-13a.75.75 0 0 1-.75-.75v-3.5A.75.75 0 0 1 3.5 13Z" clip-rule="evenodd"/></svg>';
-        const downloadLabel = document.createElement('span');
-        setLocalizedText(downloadLabel, 'tm.download', 'Tải xuống');
-        download.append(downloadLabel);
+        download.textContent = 'Tải xuống';
         const deleteForm = document.createElement('form');
         deleteForm.className = 'inline';
         deleteForm.method = 'post';
-        deleteForm.addEventListener('submit', (deleteEvent) => {
-            if (!window.confirm('Xóa file này?')) deleteEvent.preventDefault();
+        deleteForm.addEventListener('submit', (event) => {
+            if (!window.confirm('Xóa file này?')) event.preventDefault();
         });
-        for (const [name, value] of Object.entries({
-            csrf_token: csrfToken,
-            action: 'delete_tm_csv',
-            filename: file.name
-        })) {
+        for (const [name, value] of Object.entries({ csrf_token: csrfToken, action: 'delete_tm_csv', filename: file.name })) {
             const input = document.createElement('input');
             input.type = 'hidden';
             input.name = name;
@@ -422,125 +356,213 @@ $files = $repository->listFiles();
             deleteForm.append(input);
         }
         const deleteButton = document.createElement('button');
-        deleteButton.className = 'inline-flex items-center rounded-md px-2.5 py-1.5 font-semibold text-slate-500 transition hover:bg-red-50 hover:text-red-600';
         deleteButton.type = 'submit';
-        setLocalizedText(deleteButton, 'workspace.delete', 'Xóa');
+        deleteButton.textContent = 'Xóa';
         deleteForm.append(deleteButton);
         actionsCell.append(download, deleteForm);
         row.append(nameCell, sizeCell, modifiedCell, actionsCell);
-        fileList.prepend(row);
-        emptyState.hidden = true;
-        fileCount.textContent = String(Number(fileCount.textContent) + 1);
+        document.getElementById('tm-files-list').prepend(row);
+        document.getElementById('tm-files-empty').hidden = true;
+        const count = document.getElementById('tm-file-count');
+        count.textContent = String(Number(count.textContent) + 1);
     };
 
     form.addEventListener('submit', async (event) => {
         event.preventDefault();
         const files = selectedFiles();
-        if (files.length === 0) {
-            setSelectedFiles(files);
-            return;
+        if (!files.length) return;
+        for (const file of files) {
+            if (!(file instanceof File)) return;
         }
 
-        const button = submitButton;
         const csrfToken = form.elements.csrf_token.value;
         fileStatusList.replaceChildren();
-        const statuses = files.map((file) => {
+        status.textContent = '';
+        progress.hidden = false;
+        progress.classList.remove('hidden');
+        progressBar.style.width = '0%';
+        progressCount.textContent = `0/${files.length}`;
+        if (submitButton) submitButton.disabled = true;
+        fileInput.disabled = true;
+
+        let completed = 0;
+        let imported = 0;
+        const failures = [];
+        for (const [index, file] of files.entries()) {
             const item = document.createElement('li');
             item.className = 'flex items-center justify-between gap-3';
             const name = document.createElement('span');
             name.className = 'truncate';
             name.textContent = file.name;
             const itemStatus = document.createElement('span');
-            itemStatus.className = 'shrink-0 text-slate-500';
-            setLocalizedText(itemStatus, 'tm.waiting', 'Chờ tải lên');
+            itemStatus.textContent = 'Đang tải lên';
             item.append(name, itemStatus);
             fileStatusList.append(item);
-            return itemStatus;
-        });
-        progress.classList.remove('hidden');
-        progress.hidden = false;
-        setLocalizedText(progressLabel, 'tm.upload_preparing', 'Đang chuẩn bị tải lên...');
-        progressCount.textContent = `0/${files.length}`;
-        progressBar.style.width = '0%';
-        status.textContent = '';
-        if (button) button.disabled = true;
-        fileInput.disabled = true;
+            progressLabel.textContent = `Đang tải file ${index + 1}/${files.length}: ${file.name}`;
 
-        let uploaded = 0;
-        const failures = [];
-        for (let index = 0; index < files.length; index++) {
-            const file = files[index];
-            const itemStatus = statuses[index];
-            setLocalizedText(progressLabel, 'tm.uploading_file', 'Đang tải file {current}/{total}: {name}', {
-                current: index + 1,
-                total: files.length,
-                name: file.name
-            });
-            setLocalizedText(itemStatus, 'tm.uploading', 'Đang tải lên...');
-            itemStatus.className = 'shrink-0 text-indigo-600';
             try {
                 const formData = new FormData();
                 formData.append('csrf_token', csrfToken);
                 formData.append('action', 'upload_tm_csv');
                 formData.append('tm_csv', file, file.name);
-                const response = await fetch(form.action || window.location.href, {
+                const response = await fetch('api_upload_tm.php', {
                     method: 'POST',
                     body: formData,
                     headers: { Accept: 'application/json' }
                 });
-                const contentType = response.headers.get('content-type') || '';
-                if (!contentType.includes('application/json')) {
-                    throw new Error('Máy chủ trả về phản hồi không phải JSON.');
+                const responseText = await response.text();
+                let result;
+                try {
+                    result = JSON.parse(responseText);
+                } catch {
+                    throw new Error(responseText.slice(0, 300) || 'Máy chủ trả về phản hồi không phải JSON.');
                 }
-                const result = await response.json();
-                if (!response.ok || !result.success) {
-                    throw new Error(result.message || 'Không thể tải lên file TM.');
-                }
-                appendUploadedFile(result.file, csrfToken);
-                uploaded++;
-                setLocalizedText(itemStatus, 'tm.uploaded', 'Đã tải lên');
+                if (!response.ok || !result.success) throw new Error(result.message || 'Không thể tải lên file TM.');
+                appendFileRow(result.file, csrfToken);
+                imported += Number(result.imported || 0);
+                itemStatus.textContent = `Đã nhập ${Number(result.imported || 0)} dòng`;
                 itemStatus.className = 'shrink-0 text-emerald-700';
             } catch (error) {
                 const message = error instanceof Error ? error.message : 'Không thể tải lên file TM.';
                 failures.push(`${file.name}: ${message}`);
-                setLocalizedText(itemStatus, 'tm.failed', 'Thất bại');
-                itemStatus.className = 'shrink-0 text-red-600';
+                itemStatus.textContent = 'Thất bại';
                 itemStatus.title = message;
+                itemStatus.className = 'shrink-0 text-red-600';
             }
-            progressCount.textContent = `${index + 1}/${files.length}`;
-            progressBar.style.width = `${((index + 1) / files.length) * 100}%`;
+            completed++;
+            progressCount.textContent = `${completed}/${files.length}`;
+            progressBar.style.width = `${(completed / files.length) * 100}%`;
         }
 
-        if (uploaded === files.length) {
-            setLocalizedText(status, 'tm.upload_success_all', 'Đã tải lên thành công tất cả {count} file CSV. Danh sách kho TM đã được cập nhật.', { count: uploaded });
-            status.className = 'mt-3 text-sm text-emerald-700';
-        } else if (uploaded > 0) {
-            setLocalizedText(status, 'tm.upload_success_partial', 'Đã tải lên {uploaded}/{total} file. Một số file chưa tải được.', { uploaded, total: files.length });
-            status.className = 'mt-3 text-sm text-amber-700';
-        } else {
-            setLocalizedText(status, 'tm.upload_failed', 'Không thể tải lên các file đã chọn.');
-            status.className = 'mt-3 text-sm text-red-700';
-        }
-        if (failures.length > 0) {
-            status.title = failures.join('\n');
-        } else {
-            status.removeAttribute('title');
-        }
-        if (uploaded === files.length) {
-            setLocalizedText(progressLabel, 'tm.upload_complete', 'Hoàn tất tải lên');
-        } else {
-            setLocalizedText(progressLabel, 'tm.upload_complete_partial', 'Hoàn tất: {uploaded}/{total} file thành công', {
-                uploaded,
-                total: files.length
-            });
-        }
+        status.textContent = failures.length
+            ? `${imported} dòng đã nhập; ${failures.length} file lỗi. ${failures.join(' | ')}`
+            : `Tải lên thành công ${files.length} file, nhập ${imported} dòng.`;
+        status.className = `mt-3 text-sm ${failures.length ? 'text-amber-700' : 'text-emerald-700'}`;
+        progressLabel.textContent = 'Hoàn tất tải lên';
         fileInput.disabled = false;
-        form.reset();
-        setSelectedFiles([]);
+        if (submitButton) submitButton.disabled = false;
+        fileInput.value = '';
+        showSelection([]);
+        progress.hidden = true;
+        progress.classList.add('hidden');
+        progressBar.style.width = '0%';
+        progressCount.textContent = '0/0';
+        progressLabel.textContent = 'Đang tải lên...';
     });
+
+    showSelection(selectedFiles());
 })();
 </script>
 <?php endif; ?>
+<script>
+(() => {
+    const fileList = document.getElementById('tm-files-list');
+    const dialog = document.getElementById('tm-details-dialog');
+    const title = document.getElementById('tm-details-title');
+    const status = document.getElementById('tm-details-status');
+    const rows = document.getElementById('tm-details-rows');
+    if (!fileList || !dialog || !title || !status || !rows) return;
+
+    const canEdit = dialog.dataset.canEdit === '1';
+    const csrfToken = dialog.dataset.csrfToken;
+    const appendCell = (row, value, className = '') => {
+        const cell = document.createElement('td');
+        cell.className = `px-4 py-3 align-top ${className}`;
+        cell.textContent = value;
+        row.append(cell);
+        return cell;
+    };
+    const renderEntry = (entry) => {
+        const row = document.createElement('tr');
+        appendCell(row, entry.locale, 'font-medium text-slate-700');
+        appendCell(row, entry.source_text, 'whitespace-pre-wrap break-words text-slate-600');
+        const targetCell = document.createElement('td');
+        targetCell.className = 'px-4 py-3 align-top';
+        if (canEdit) {
+            const target = document.createElement('textarea');
+            target.className = 'w-full min-w-56 rounded-md border border-slate-300 px-2.5 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100';
+            target.rows = 2;
+            target.value = entry.target_text;
+            target.dataset.targetText = '';
+            targetCell.append(target);
+        } else {
+            targetCell.textContent = entry.target_text;
+            targetCell.classList.add('whitespace-pre-wrap', 'break-words', 'text-slate-600');
+        }
+        row.append(targetCell);
+        if (canEdit) {
+            const actions = document.createElement('td');
+            actions.className = 'px-4 py-3 text-right align-top';
+            const save = document.createElement('button');
+            save.type = 'button';
+            save.className = 'rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50';
+            save.textContent = 'Lưu';
+            save.dataset.saveEntry = '';
+            save.dataset.rowIndex = String(entry.row_index);
+            actions.append(save);
+            row.append(actions);
+        }
+        rows.append(row);
+    };
+
+    const openFileDetails = async (filename) => {
+        title.textContent = filename;
+        status.textContent = 'Đang tải dữ liệu...';
+        rows.replaceChildren();
+        if (!dialog.open) dialog.showModal();
+        try {
+            const response = await fetch(`api_get_tm_details.php?filename=${encodeURIComponent(filename)}`, {
+                headers: { Accept: 'application/json' }
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.message || 'Không thể tải chi tiết file.');
+            result.entries.forEach(renderEntry);
+            status.textContent = `${result.entries.length} câu trong file`;
+        } catch (error) {
+            status.textContent = error instanceof Error ? error.message : 'Không thể tải chi tiết file.';
+        }
+    };
+
+    fileList.addEventListener('click', (event) => {
+        const trigger = event.target instanceof Element ? event.target.closest('[data-tm-file]') : null;
+        if (trigger) openFileDetails(trigger.dataset.tmFile);
+    });
+    dialog.querySelector('[data-close-details]').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', (event) => {
+        if (event.target === dialog) dialog.close();
+    });
+    rows.addEventListener('click', async (event) => {
+        const save = event.target instanceof Element ? event.target.closest('[data-save-entry]') : null;
+        if (!save) return;
+        const row = save.closest('tr');
+        const target = row.querySelector('[data-target-text]');
+        if (!target || !canEdit) return;
+
+        save.disabled = true;
+        status.textContent = 'Đang lưu...';
+        const formData = new FormData();
+        formData.append('csrf_token', csrfToken);
+        formData.append('filename', title.textContent);
+        formData.append('row_index', save.dataset.rowIndex);
+        formData.append('target_text', target.value);
+        try {
+            const response = await fetch('api_update_tm_entry.php', {
+                method: 'POST',
+                body: formData,
+                headers: { Accept: 'application/json' }
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.message || 'Không thể lưu bản dịch.');
+            target.value = result.entry.target_text;
+            status.textContent = result.message;
+        } catch (error) {
+            status.textContent = error instanceof Error ? error.message : 'Không thể lưu bản dịch.';
+        } finally {
+            save.disabled = false;
+        }
+    });
+})();
+</script>
 <?php require __DIR__ . '/templates/tms-ai-chat.php'; ?>
 </body>
 </html>

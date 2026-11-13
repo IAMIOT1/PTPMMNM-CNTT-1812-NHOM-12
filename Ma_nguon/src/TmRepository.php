@@ -92,6 +92,124 @@ final class TmRepository
         $this->invalidateIndex();
     }
 
+    /** @return list<array{row_index:int,locale:string,source_text:string,target_text:string}> */
+    public function getFileEntries(string $filename): array
+    {
+        $path = $this->resolveFilename($filename);
+        if (!is_file($path) || !is_readable($path)) {
+            throw new InvalidArgumentException('TM_REPOSITORY_FILE_NOT_FOUND');
+        }
+
+        $entries = [];
+        foreach ($this->readCsv($path) as $rowIndex => $row) {
+            $entries[] = [
+                'row_index' => $rowIndex,
+                'locale' => $row['locale'],
+                'source_text' => $row['source_text'],
+                'target_text' => $row['translated_text'],
+            ];
+        }
+        return $entries;
+    }
+
+    public function updateFileTranslation(string $filename, int $rowIndex, string $targetText): array
+    {
+        if ($rowIndex < 0 || trim($targetText) === '') {
+            throw new InvalidArgumentException('TM_REPOSITORY_ENTRY_INVALID');
+        }
+
+        $path = $this->resolveFilename($filename);
+        if (!is_file($path) || !is_readable($path)) {
+            throw new InvalidArgumentException('TM_REPOSITORY_FILE_NOT_FOUND');
+        }
+        $rows = $this->readCsv($path);
+        if (!array_key_exists($rowIndex, $rows)) {
+            throw new InvalidArgumentException('TM_REPOSITORY_ENTRY_NOT_FOUND');
+        }
+
+        $entry = $rows[$rowIndex];
+        $rows[$rowIndex]['translated_text'] = $targetText;
+        $temporaryPath = tempnam($this->storageRoot, '.tm-edit-');
+        if ($temporaryPath === false) {
+            throw new RuntimeException('TM_REPOSITORY_WRITE_FAILED');
+        }
+        $backupPath = null;
+        $originalMoved = false;
+        $transactionStarted = false;
+
+        try {
+            $this->writeCsvToPath($temporaryPath, $rows);
+            if (pg_query($this->connection, 'BEGIN') === false) {
+                throw new RuntimeException('TM_REPOSITORY_DATABASE_TRANSACTION_FAILED');
+            }
+            $transactionStarted = true;
+            queryParams(
+                $this->connection,
+                'INSERT INTO translation_memory (project_id, locale, source_text, translated_text, created_at, updated_at)
+                 VALUES (NULL, $1, $2, $3, NOW(), NOW())
+                 ON CONFLICT (locale, source_text) WHERE project_id IS NULL
+                 DO UPDATE SET translated_text = EXCLUDED.translated_text, updated_at = NOW()',
+                [$entry['locale'], $entry['source_text'], $targetText]
+            );
+
+            $createdBackupPath = tempnam($this->storageRoot, '.tm-backup-');
+            if ($createdBackupPath === false) {
+                throw new RuntimeException('TM_REPOSITORY_BACKUP_FAILED');
+            }
+            $backupPath = $createdBackupPath;
+            if (!unlink($backupPath)) {
+                throw new RuntimeException('TM_REPOSITORY_BACKUP_FAILED');
+            }
+            if (!rename($path, $backupPath)) {
+                throw new RuntimeException('TM_REPOSITORY_BACKUP_FAILED');
+            }
+            $originalMoved = true;
+            if (!rename($temporaryPath, $path)) {
+                throw new RuntimeException('TM_REPOSITORY_WRITE_FAILED');
+            }
+            $temporaryPath = '';
+            @chmod($path, 0640);
+
+            if (pg_query($this->connection, 'COMMIT') === false) {
+                throw new RuntimeException('TM_REPOSITORY_DATABASE_TRANSACTION_FAILED');
+            }
+            $transactionStarted = false;
+            if (!unlink($backupPath)) {
+                error_log('TM_REPOSITORY_BACKUP_CLEANUP_FAILED: ' . $backupPath);
+            }
+            $backupPath = null;
+            $originalMoved = false;
+            $this->invalidateIndex();
+        } catch (Throwable $exception) {
+            if ($transactionStarted && pg_query($this->connection, 'ROLLBACK') === false) {
+                error_log('TM_REPOSITORY_ROLLBACK_FAILED: ' . pg_last_error($this->connection));
+            }
+            if ($originalMoved && $backupPath !== null && is_file($backupPath)) {
+                if (is_file($path) && !unlink($path)) {
+                    error_log('TM_REPOSITORY_EDIT_CLEANUP_FAILED: ' . $path);
+                }
+                if (!rename($backupPath, $path)) {
+                    error_log('TM_REPOSITORY_EDIT_RESTORE_FAILED: ' . $backupPath);
+                }
+            }
+            if ($temporaryPath !== '' && is_file($temporaryPath) && !unlink($temporaryPath)) {
+                error_log('TM_REPOSITORY_EDIT_TEMP_CLEANUP_FAILED: ' . $temporaryPath);
+            }
+            if ($backupPath !== null && is_file($backupPath) && !unlink($backupPath)) {
+                error_log('TM_REPOSITORY_BACKUP_CLEANUP_FAILED: ' . $backupPath);
+            }
+            $this->invalidateIndex();
+            throw $exception;
+        }
+
+        return [
+            'row_index' => $rowIndex,
+            'locale' => $entry['locale'],
+            'source_text' => $entry['source_text'],
+            'target_text' => $targetText,
+        ];
+    }
+
     public function importUploaded(string $tmpPath, string $originalName): array
     {
         if (strtolower(pathinfo($originalName, PATHINFO_EXTENSION)) !== 'csv') {
@@ -116,28 +234,14 @@ final class TmRepository
             $transactionStarted = true;
             $inserted = 0;
             foreach ($rows as $row) {
-                $existing = queryParams(
+                queryParams(
                     $this->connection,
-                    'SELECT id FROM translation_memory
-                     WHERE project_id IS NULL AND locale = $1 AND source_text = $2
-                     LIMIT 1',
-                    [$row['locale'], $row['source_text']]
+                    'INSERT INTO translation_memory (project_id, locale, source_text, translated_text, created_at, updated_at)
+                     VALUES (NULL, $1, $2, $3, NOW(), NOW())
+                     ON CONFLICT (locale, source_text) WHERE project_id IS NULL
+                     DO UPDATE SET translated_text = EXCLUDED.translated_text, updated_at = NOW()',
+                    [$row['locale'], $row['source_text'], $row['translated_text']]
                 );
-                $existingId = pg_fetch_result($existing, 0, 'id');
-                if ($existingId !== false) {
-                    queryParams(
-                        $this->connection,
-                        'UPDATE translation_memory SET translated_text = $1 WHERE id = $2',
-                        [$row['translated_text'], (int)$existingId]
-                    );
-                } else {
-                    queryParams(
-                        $this->connection,
-                        'INSERT INTO translation_memory (project_id, locale, source_text, translated_text)
-                         VALUES (NULL, $1, $2, $3)',
-                        [$row['locale'], $row['source_text'], $row['translated_text']]
-                    );
-                }
                 $inserted++;
             }
             if (pg_query($this->connection, 'COMMIT') === false) {
@@ -187,19 +291,24 @@ final class TmRepository
     private function writeCsv(string $filename, array $rows): void
     {
         $path = $this->resolveFilename($filename);
+        $this->writeCsvToPath($path, $rows);
+        $this->invalidateIndex();
+    }
+
+    private function writeCsvToPath(string $path, array $rows): void
+    {
         $handle = fopen($path, 'wb');
         if ($handle === false) {
             throw new RuntimeException('TM_REPOSITORY_WRITE_FAILED');
         }
         fwrite($handle, "\xEF\xBB\xBF");
-        fputcsv($handle, ['locale', 'source_text', 'target_text']);
+        fputcsv($handle, ['locale', 'source_text', 'target_text'], ',', '"', '\\');
         foreach ($rows as $row) {
-            fputcsv($handle, [$row['locale'], $row['source_text'], $row['translated_text']]);
+            fputcsv($handle, [$row['locale'], $row['source_text'], $row['translated_text']], ',', '"', '\\');
         }
         if (fclose($handle) === false) {
             throw new RuntimeException('TM_REPOSITORY_WRITE_FAILED');
         }
-        $this->invalidateIndex();
     }
 
     /** @return list<array{locale:string,source_text:string,translated_text:string,repository_file:string}> */
@@ -258,47 +367,29 @@ final class TmRepository
         $commaCount = substr_count($firstLine, ',');
         $delimiter = $semicolonCount > $commaCount ? ';' : ',';
         rewind($handle);
-        $header = fgetcsv($handle, 1000, $delimiter);
+        $header = fgetcsv($handle, 0, $delimiter, '"', '\\');
         if (!is_array($header)) {
             fclose($handle);
             error_log(sprintf('[TM repository CSV] Invalid header in %s (delimiter: %s)', $path, $delimiter));
             throw new InvalidArgumentException('TM_REPOSITORY_CSV_EMPTY');
         }
         $header = array_map(static fn($value): string => strtolower(trim((string)$value, "\xEF\xBB\xBF \t\n\r")), $header);
+        if ($header !== ['locale', 'source_text', 'target_text']) {
+            fclose($handle);
+            error_log(sprintf(
+                '[TM repository CSV] Invalid columns in %s. Expected locale, source_text, target_text. Delimiter: %s. Read columns: %s',
+                $path,
+                $delimiter,
+                implode(', ', $header)
+            ));
+            throw new InvalidArgumentException('TM_REPOSITORY_CSV_COLUMNS_REQUIRED');
+        }
         $indexes = array_flip($header);
-        $targetIndex = $indexes['target_text'] ?? $indexes['translated_text'] ?? null;
-        if ($targetIndex === null) {
-            fclose($handle);
-            error_log(sprintf(
-                '[TM repository CSV] Missing target column in %s. Delimiter: %s. Read columns: %s',
-                $path,
-                $delimiter,
-                implode(', ', $header)
-            ));
-            throw new InvalidArgumentException('TM_REPOSITORY_CSV_COLUMNS_REQUIRED');
-        }
-        $missingColumns = [];
-        foreach (['locale', 'source_text'] as $required) {
-            if (!isset($indexes[$required])) {
-                $missingColumns[] = $required;
-            }
-        }
-        if ($missingColumns !== []) {
-            fclose($handle);
-            error_log(sprintf(
-                '[TM repository CSV] Missing required columns in %s: %s. Delimiter: %s. Read columns: %s',
-                $path,
-                implode(', ', $missingColumns),
-                $delimiter,
-                implode(', ', $header)
-            ));
-            throw new InvalidArgumentException('TM_REPOSITORY_CSV_COLUMNS_REQUIRED');
-        }
         $rows = [];
-        while (($row = fgetcsv($handle, 1000, $delimiter)) !== false) {
+        while (($row = fgetcsv($handle, 0, $delimiter, '"', '\\')) !== false) {
             $locale = trim((string)($row[$indexes['locale']] ?? ''));
             $source = (string)($row[$indexes['source_text']] ?? '');
-            $translated = $targetIndex !== null ? (string)($row[$targetIndex] ?? '') : '';
+            $translated = (string)($row[$indexes['target_text']] ?? '');
             if ($locale !== '' && $source !== '' && $translated !== '') {
                 $rows[] = ['locale' => $locale, 'source_text' => $source, 'translated_text' => $translated];
             }
