@@ -78,7 +78,7 @@ try {
     );
     $users['admin'] = pg_fetch_assoc($adminRes);
     same($users['translator']['role'], 'user', 'new-user-is-not-system-admin');
-    same(AuthManager::safeReturnPath('/profile.php'), '/profile.php', 'login-return-path-preserves-local-page');
+    same(AuthManager::safeReturnPath('/ho_so_ca_nhan.php'), '/ho_so_ca_nhan.php', 'login-return-path-preserves-local-page');
     same(AuthManager::safeReturnPath('//example.test/'), '/index.php', 'login-return-path-rejects-external-host');
     same(AuthManager::safeReturnPath('/\\example.test/'), '/index.php', 'login-return-path-rejects-backslash-host');
 

@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             queryParams($conn, 'UPDATE users SET password_hash = $1 WHERE id = $2', [$hash, (int)$reset['user_id']]);
             queryParams($conn, 'UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = $1', [(int)$reset['id']]);
-            header('Location: login.php?reset=1', true, 303);
+            header('Location: dang_nhap.php?reset=1', true, 303);
             exit;
         }
     }

@@ -112,7 +112,7 @@ $csrfToken = Csrf::token();
 <body class="bg-slate-50 text-slate-800">
 <main class="mx-auto max-w-4xl space-y-6 px-4 py-8">
     <div class="flex flex-wrap items-center justify-between gap-4">
-        <a class="text-sm font-semibold text-indigo-700" href="project_detail.php?id=<?= (int)$string['project_id'] ?>&amp;locale=<?= rawurlencode($locale) ?>&amp;version_id=<?= (int)$string['source_version_id'] ?>">← <span data-i18n="comments.back">Quay lại dự án</span></a>
+        <a class="text-sm font-semibold text-indigo-700" href="chi_tiet_du_an.php?id=<?= (int)$string['project_id'] ?>&amp;locale=<?= rawurlencode($locale) ?>&amp;version_id=<?= (int)$string['source_version_id'] ?>">← <span data-i18n="comments.back">Quay lại dự án</span></a>
         <?php require __DIR__ . '/templates/theme-toggle.php'; ?>
         <?php require __DIR__ . '/templates/language-switcher.php'; ?>
     </div>

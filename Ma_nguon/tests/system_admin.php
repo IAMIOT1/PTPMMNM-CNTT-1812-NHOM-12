@@ -98,14 +98,14 @@ try {
         'resolved',
         'support-ticket-can-be-resolved'
     );
-    $profilePage = file_get_contents(__DIR__ . '/../profile.php');
+    $profilePage = file_get_contents(__DIR__ . '/../resources/views/ho_so_ca_nhan.php');
     same(str_contains($profilePage, 'submit_support_ticket'), true, 'profile-page-submits-support-ticket');
     same(str_contains($profilePage, 'WHERE user_id = $1'), true, 'profile-page-loads-only-own-support-tickets');
     same(str_contains($profilePage, 'enctype="multipart/form-data"'), true, 'support-form-submits-multipart-data');
     same(str_contains($profilePage, 'name="support_image"'), true, 'support-form-accepts-image-attachment');
     same(str_contains($profilePage, '$ticket[\'image_path\']'), true, 'profile-ticket-history-shows-image-thumbnail');
-    same(str_contains(file_get_contents(__DIR__ . '/../admin_users.php'), '$ticket[\'image_path\']'), true, 'admin-ticket-queue-shows-image-thumbnail');
-    same(str_contains($profilePage, "header('Location: profile.php?status=support_submitted#support-requests', true, 303);"), true, 'support-submission-uses-post-redirect-get');
+    same(str_contains(file_get_contents(__DIR__ . '/../resources/views/quan_ly_nguoi_dung.php'), '$ticket[\'image_path\']'), true, 'admin-ticket-queue-shows-image-thumbnail');
+    same(str_contains($profilePage, "header('Location: ho_so_ca_nhan.php?status=support_submitted#support-requests', true, 303);"), true, 'support-submission-uses-post-redirect-get');
     same(str_contains($profilePage, "if (\$_SERVER['REQUEST_METHOD'] === 'POST')"), true, 'profile-form-actions-require-post-request');
 
     pg_query($connection, 'SAVEPOINT invalid_system_role');
@@ -123,7 +123,7 @@ try {
     }
     pg_query($connection, 'RELEASE SAVEPOINT invalid_system_role');
     same($invalidRoleRejected, true, 'unknown-system-role-is-rejected');
-    $adminPage = file_get_contents(__DIR__ . '/../admin_users.php');
+    $adminPage = file_get_contents(__DIR__ . '/../resources/views/quan_ly_nguoi_dung.php');
     same(str_contains($adminPage, "\$_SESSION['role'] ?? '') !== 'admin'"), true, 'admin-page-checks-session-role');
     same(str_contains($adminPage, "header('Location: index.php', true, 303);"), true, 'non-admin-redirects-to-home');
     same(str_contains($adminPage, '!ProjectAccess::isSystemAdmin($currentUser)'), true, 'admin-page-rechecks-database-role');
@@ -142,10 +142,10 @@ try {
     same(str_contains($adminPage, 'name="user_ids[]"'), true, 'admin-user-page-selects-rows-for-bulk-actions');
     same(str_contains($adminPage, 'value="lock">Khóa các tài khoản đã chọn'), true, 'admin-user-page-can-bulk-lock');
     same(str_contains($adminPage, 'value="delete">Xóa các tài khoản đã chọn'), true, 'admin-user-page-can-bulk-delete');
-    same(str_contains($adminPage, 'admin_users.php?export=csv'), true, 'admin-user-page-exports-csv');
+    same(str_contains($adminPage, 'quan_ly_nguoi_dung.php?export=csv'), true, 'admin-user-page-exports-csv');
     same(str_contains($adminPage, "fputcsv(\$output"), true, 'admin-user-export-writes-csv');
     same(!str_contains($adminPage, "value=\"reset_password\""), true, 'admin-user-page-removes-quick-password-reset');
-    same(str_contains(file_get_contents(__DIR__ . '/../login.php'), 'forgot_password.php')
+    same(str_contains(file_get_contents(__DIR__ . '/../resources/views/dang_nhap.php'), 'forgot_password.php')
         && str_contains(file_get_contents(__DIR__ . '/../forgot_password.php'), 'password_reset_tokens')
         && str_contains(file_get_contents(__DIR__ . '/../reset_password.php'), 'PASSWORD_DEFAULT'),
         true,
@@ -196,11 +196,11 @@ try {
     same($auth->login($adminName, $password), false, 'deactivated-account-cannot-login');
     same($auth->login($lockedName, $password), false, 'locked-user-stays-unable-to-login');
     same($lockedId > 0, true, 'locked-user-is-persisted-for-test');
-    $loginPage = file_get_contents(__DIR__ . '/../login.php');
-    same(str_contains($loginPage, "'admin_users.php'"), true, 'login-routes-admin-to-user-management');
+    $loginPage = file_get_contents(__DIR__ . '/../resources/views/dang_nhap.php');
+    same(str_contains($loginPage, "'quan_ly_nguoi_dung.php'"), true, 'login-routes-admin-to-user-management');
     same(str_contains($loginPage, ": 'index.php'"), true, 'login-routes-regular-user-to-workspace');
     $workspacePage = file_get_contents(__DIR__ . '/../index.php');
-    same(str_contains($workspacePage, "header('Location: admin_users.php', true, 303);"), true, 'admin-workspace-request-redirects-to-admin');
+    same(str_contains($workspacePage, "header('Location: quan_ly_nguoi_dung.php', true, 303);"), true, 'admin-workspace-request-redirects-to-admin');
 
     $projectResult = queryParams(
         $connection,

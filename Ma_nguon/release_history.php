@@ -227,7 +227,7 @@ while ($row = pg_fetch_assoc($releasesRes)) {
 <body class="bg-slate-50 text-slate-800">
 <main class="mx-auto max-w-5xl px-4 py-8">
     <div class="mb-5 flex flex-wrap items-center justify-between gap-4">
-        <a class="text-sm font-semibold text-indigo-700" href="project_detail.php?id=<?= (int)$projectId ?>" data-i18n="releases.back_project">← Quay lại dự án</a>
+        <a class="text-sm font-semibold text-indigo-700" href="chi_tiet_du_an.php?id=<?= (int)$projectId ?>" data-i18n="releases.back_project">← Quay lại dự án</a>
         <?php require __DIR__ . '/templates/theme-toggle.php'; ?>
     </div>
     <section class="mt-5 rounded-xl border bg-white p-6 shadow-sm">

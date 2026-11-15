@@ -7,7 +7,7 @@ if ($currentUser):
    href="tm_repository.php" data-i18n="menu.tm_repository">Kho TM</a>
 <?php if (ProjectAccess::isSystemAdmin($currentUser)): ?>
     <a class="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
-       href="admin_users.php">
+       href="quan_ly_nguoi_dung.php">
         <span aria-hidden="true">🛡️</span>
         <span data-i18n="menu.system_admin">Quản trị hệ thống</span>
     </a>
@@ -36,7 +36,7 @@ if ($currentUser):
                             <p><?= htmlspecialchars($notification['message'], ENT_QUOTES, 'UTF-8') ?></p>
                             <time><?= htmlspecialchars($notification['created_at'], ENT_QUOTES, 'UTF-8') ?></time>
                             <?php if ($notification['is_read'] !== 't'): ?>
-                                <form method="post" action="notifications.php">
+                                <form method="post" action="thong_bao.php">
                                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                                     <input type="hidden" name="notification_id" value="<?= (int)$notification['id'] ?>">
                                     <input type="hidden" name="return_to" value="<?= htmlspecialchars((string)($_SERVER['REQUEST_URI'] ?? '/index.php'), ENT_QUOTES, 'UTF-8') ?>">
@@ -65,23 +65,23 @@ if ($currentUser):
             <span class="tms-profile-email"><?= htmlspecialchars((string)($currentUser['email'] ?? ''), ENT_QUOTES, 'UTF-8') ?></span>
         </div>
         <div class="tms-profile-divider" role="separator"></div>
-        <a class="tms-profile-menu-link" href="profile.php#account-settings">
+        <a class="tms-profile-menu-link" href="ho_so_ca_nhan.php#account-settings">
             <span class="tms-profile-menu-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="6.25" r="3"/><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 16.25a5.5 5.5 0 0 1 11 0"/></svg></span>
             <span data-i18n="menu.account_settings">Cài đặt tài khoản</span>
         </a>
-        <a class="tms-profile-menu-link" href="profile.php#change-password">
+        <a class="tms-profile-menu-link" href="ho_so_ca_nhan.php#change-password">
             <span class="tms-profile-menu-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.25" y="8.25" width="13.5" height="9" rx="1.75"/><path stroke-linecap="round" stroke-linejoin="round" d="M6.25 8.25V5.75a3.75 3.75 0 0 1 7.5 0v2.5m-3.75 3.25v2.5"/></svg></span>
             <span data-i18n="menu.change_password">Đổi mật khẩu</span>
         </a>
-        <a class="tms-profile-menu-link" href="profile.php#recent-activity">
+        <a class="tms-profile-menu-link" href="ho_so_ca_nhan.php#recent-activity">
             <span class="tms-profile-menu-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M3.5 10a6.5 6.5 0 1 0 1.7-4.4L3.5 7.5"/><path stroke-linecap="round" stroke-linejoin="round" d="M3.5 4.5v3h3m3.5-1v4l2.5 1.5"/></svg></span>
             <span data-i18n="menu.activity">Nhật ký hoạt động</span>
         </a>
-        <a class="tms-profile-menu-link" href="profile.php#notification-settings">
+        <a class="tms-profile-menu-link" href="ho_so_ca_nhan.php#notification-settings">
             <span class="tms-profile-menu-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M10 2.75v1m0 12.5v1m7.25-7.25h-1m-12.5 0h-1m12.38-5.13-.71.71m-8.84 8.84-.71.71m10.26 0-.71-.71m-8.84-8.84-.71-.71"/><circle cx="10" cy="10" r="4.25"/></svg></span>
             <span data-i18n="menu.notifications">Cài đặt thông báo</span>
         </a>
-        <a class="tms-profile-menu-link" href="profile.php#support-requests">
+        <a class="tms-profile-menu-link" href="ho_so_ca_nhan.php#support-requests">
             <span class="tms-profile-menu-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7.25"/><path stroke-linecap="round" stroke-linejoin="round" d="M7.9 7.5a2.2 2.2 0 1 1 3.8 1.5c-.9.85-1.7 1.1-1.7 2.5m0 2.25h.01"/></svg></span>
             <span data-i18n="menu.support">Hỗ trợ &amp; Báo cáo sự cố</span>
         </a>
@@ -126,7 +126,7 @@ if ($currentUser):
 <?php else: ?>
 <nav class="flex items-center gap-3">
     <?php require __DIR__ . '/theme-toggle.php'; ?>
-    <a href="login.php" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Đăng nhập</a>
-    <a href="register.php" class="rounded-lg border border-indigo-600 px-4 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50">Đăng ký</a>
+    <a href="dang_nhap.php" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Đăng nhập</a>
+    <a href="dang_ky.php" class="rounded-lg border border-indigo-600 px-4 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50">Đăng ký</a>
 </nav>
 <?php endif; ?>

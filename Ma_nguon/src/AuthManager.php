@@ -134,7 +134,7 @@ class AuthManager {
 
     public static function redirectToLogin(string $returnTo): never {
         $returnTo = self::safeReturnPath($returnTo);
-        header('Location: login.php?next=' . rawurlencode($returnTo), true, 303);
+        header('Location: dang_nhap.php?next=' . rawurlencode($returnTo), true, 303);
         exit;
     }
 

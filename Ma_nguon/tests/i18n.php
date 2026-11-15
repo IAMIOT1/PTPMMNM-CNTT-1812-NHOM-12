@@ -181,7 +181,7 @@ $releaseHistoryUsesSeparateTabsAndCsrfProtectedRevoke = str_contains($releaseHis
     && str_contains($releaseHistoryMarkup, 'release_sync_history');
 same($releaseHistoryUsesSeparateTabsAndCsrfProtectedRevoke, true, 'release-history-has-tabs-and-protected-sync-revoke');
 $allSyncEntrypointsRecordHistory = str_contains(file_get_contents(__DIR__ . '/../index.php'), "record_count, actor_user_id, new_data, target_rollback_data, requires_auth")
-    && str_contains(file_get_contents(__DIR__ . '/../translate.php'), "record_count, actor_user_id, new_data, target_rollback_data, requires_auth");
+    && str_contains(file_get_contents(__DIR__ . '/../resources/views/giao_dien_dich.php'), "record_count, actor_user_id, new_data, target_rollback_data, requires_auth");
 same($allSyncEntrypointsRecordHistory, true, 'all-sync-back-entrypoints-record-api-history');
 $translationLanguageHistoryIsRenderedOnServer = str_contains($workspaceMarkup = file_get_contents(__DIR__ . '/../index.php'), 'id="translation-history-container"')
     && str_contains($workspaceMarkup, 'Lịch sử các ngôn ngữ đã dịch')
@@ -287,7 +287,7 @@ $translationConflictHandling = str_contains($workspaceMarkup, 'name="base_versio
     && str_contains($workspaceMarkup, 'Làm mới dòng này')
     && str_contains($workspaceMarkup, 'updated_by');
 same($translationConflictHandling, true, 'translation-save-detects-conflicts-and-offers-row-refresh');
-$secondaryTranslationPage = file_get_contents(__DIR__ . '/../translate.php');
+$secondaryTranslationPage = file_get_contents(__DIR__ . '/../resources/views/giao_dien_dich.php');
 $secondaryTranslationConflictHandling = str_contains($secondaryTranslationPage, 'name="base_version"')
     && str_contains($secondaryTranslationPage, 'FOR UPDATE OF t')
     && str_contains($secondaryTranslationPage, 'id="translation-conflict-dialog"')
@@ -312,9 +312,9 @@ $translationJsonResponseHandling = str_contains($workspaceMarkup, 'new URL(windo
     && str_contains($workspaceMarkup, "header('Content-Type: application/json; charset=utf-8');")
     && str_contains($workspaceMarkup, 'while (ob_get_level() > 0) {');
 same($translationJsonResponseHandling, true, 'translation-save-validates-endpoint-and-parses-json-safely');
-$projectDetailRoute = file_get_contents(__DIR__ . '/../project_detail.php');
+$projectDetailRoute = file_get_contents(__DIR__ . '/../resources/views/chi_tiet_du_an.php');
 $projectDetailRoutesTranslationRequests = str_contains($workspaceMarkup, '$workspaceAction')
-    && str_contains($projectDetailRoute, "require __DIR__ . '/index.php';")
+    && str_contains($projectDetailRoute, "require dirname(__DIR__, 2) . '/index.php';")
     && str_contains($projectDetailRoute, "'save_translation';")
     && str_contains($projectDetailRoute, "header('Content-Type: application/json; charset=utf-8');");
 same($projectDetailRoutesTranslationRequests, true, 'project-detail-save-route-dispatches-json-requests');
@@ -593,8 +593,8 @@ same($autoTargetsValid, true, 'global-auto-labels-reference-existing-keys');
 same($autoLabelsConsistent, true, 'global-auto-labels-have-consistent-keys');
 
 $applicationPages = [
-    'login.php',
-    'register.php',
+    'resources/views/dang_nhap.php',
+    'resources/views/dang_ky.php',
     'tm_repository.php',
     'release_history.php',
     'release_view.php',
@@ -605,11 +605,11 @@ foreach ($applicationPages as $page) {
     $pagesLoadGlobalLocalization = $pagesLoadGlobalLocalization
         && str_contains(file_get_contents(__DIR__ . '/../' . $page), 'tms-i18n.js');
 }
-foreach (['index.php', 'translate.php', 'profile.php'] as $page) {
+foreach (['index.php', 'resources/views/giao_dien_dich.php', 'resources/views/ho_so_ca_nhan.php'] as $page) {
     $pagesLoadGlobalLocalization = $pagesLoadGlobalLocalization
-        && str_contains(file_get_contents(__DIR__ . '/../' . $page), 'templates/tms-header.php');
+        && str_contains(file_get_contents(__DIR__ . '/../' . $page), '/templates/tms-header.php');
 }
-$adminPageMarkup = file_get_contents(__DIR__ . '/../admin_users.php');
+$adminPageMarkup = file_get_contents(__DIR__ . '/../resources/views/quan_ly_nguoi_dung.php');
 $pagesLoadGlobalLocalization = $pagesLoadGlobalLocalization
     && str_contains($adminPageMarkup, '<script src="tms-i18n.js" defer></script>');
 $adminPageIsStandalone = !str_contains($adminPageMarkup, "templates/tms-header.php")
@@ -618,17 +618,40 @@ $adminPageIsStandalone = !str_contains($adminPageMarkup, "templates/tms-header.p
     && !str_contains($adminPageMarkup, 'Tạo dự án mới')
     && str_contains($adminPageMarkup, 'Danh sách người dùng');
 same($adminPageIsStandalone, true, 'admin-page-is-separate-from-user-workspace');
+$viewRouteWrappersArePreserved = true;
+foreach ([
+    'dang_nhap.php',
+    'dang_ky.php',
+    'ho_so_ca_nhan.php',
+    'chi_tiet_du_an.php',
+    'giao_dien_dich.php',
+    'quan_ly_nguoi_dung.php',
+    'thong_bao.php',
+] as $page) {
+    $viewRouteWrappersArePreserved = $viewRouteWrappersArePreserved
+        && str_contains(
+            file_get_contents(__DIR__ . '/../' . $page),
+            "require __DIR__ . '/resources/views/{$page}';"
+        );
+}
+same($viewRouteWrappersArePreserved, true, 'view-pages-keep-public-route-wrappers');
+$unusedLegacyAliasesAreRemoved = true;
+foreach (['login.php', 'profile.php', 'project_detail.php', 'translate.php', 'admin_users.php', 'notifications.php'] as $page) {
+    $unusedLegacyAliasesAreRemoved = $unusedLegacyAliasesAreRemoved
+        && !file_exists(__DIR__ . '/../' . $page);
+}
+same($unusedLegacyAliasesAreRemoved, true, 'unused-english-page-aliases-are-removed');
 $adminNavigationPointsToUserManagement = str_contains(
     file_get_contents(__DIR__ . '/../templates/tms-header.php'),
-    'href="admin_users.php"'
+    'href="quan_ly_nguoi_dung.php"'
 );
 same($adminNavigationPointsToUserManagement, true, 'admin-navigation-opens-standalone-admin-page');
 $sharedHeaderMarkup = file_get_contents(__DIR__ . '/../templates/tms-header.php');
-same(str_contains($sharedHeaderMarkup, 'href="profile.php#support-requests"'), true, 'account-menu-links-to-support-form');
-$profilePageMarkup = file_get_contents(__DIR__ . '/../profile.php');
+same(str_contains($sharedHeaderMarkup, 'href="ho_so_ca_nhan.php#support-requests"'), true, 'account-menu-links-to-support-form');
+$profilePageMarkup = file_get_contents(__DIR__ . '/../resources/views/ho_so_ca_nhan.php');
 same(str_contains($profilePageMarkup, 'id="support-requests"'), true, 'support-menu-target-exposes-ticket-form');
 same(str_contains($profilePageMarkup, 'name="action" value="submit_support_ticket"'), true, 'support-form-submits-ticket');
-$projectDetailIncludesWorkspace = str_contains(file_get_contents(__DIR__ . '/../project_detail.php'), "require __DIR__ . '/index.php'");
+$projectDetailIncludesWorkspace = str_contains(file_get_contents(__DIR__ . '/../resources/views/chi_tiet_du_an.php'), "require dirname(__DIR__, 2) . '/index.php'");
 $sharedHeaderLoadsLocalization = str_contains(
     file_get_contents(__DIR__ . '/../templates/tms-header.php'),
     '<script src="tms-i18n.js" defer></script>'
@@ -674,11 +697,11 @@ $dictionaryEndpointDisablesCache = str_contains(
 );
 $themePages = [
     'index.php',
-    'translate.php',
-    'login.php',
-    'register.php',
-    'profile.php',
-    'admin_users.php',
+    'resources/views/giao_dien_dich.php',
+    'resources/views/dang_nhap.php',
+    'resources/views/dang_ky.php',
+    'resources/views/ho_so_ca_nhan.php',
+    'resources/views/quan_ly_nguoi_dung.php',
     'tm_repository.php',
     'release_history.php',
     'release_view.php',
@@ -717,7 +740,7 @@ $themeStylesSupportBothPalettes = str_contains($themeStyles, 'body:not(.tms-ligh
     && str_contains($themeStyles, '#8b5cf6')
     && str_contains($themeStyles, '#84cc16');
 $syncMarkup = file_get_contents(__DIR__ . '/../index.php');
-$translateMarkup = file_get_contents(__DIR__ . '/../translate.php');
+$translateMarkup = file_get_contents(__DIR__ . '/../resources/views/giao_dien_dich.php');
 $syncClient = file_get_contents(__DIR__ . '/../tms-sync-back.js');
 $syncService = file_get_contents(__DIR__ . '/../src/RemoteContentService.php');
 $syncBackHandlesResponsesSafely = str_contains($syncClient, "form.addEventListener('submit'")

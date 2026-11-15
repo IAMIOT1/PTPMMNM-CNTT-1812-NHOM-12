@@ -31,7 +31,7 @@ if ($error === '' && ($isDirectLink || $requestMethod === 'POST')) {
                 [$email, $code]
             );
             if (pg_fetch_assoc($result)) {
-                header('Location: login.php?verified=success', true, 303);
+                header('Location: dang_nhap.php?verified=success', true, 303);
                 exit;
             }
             $error = $isDirectLink

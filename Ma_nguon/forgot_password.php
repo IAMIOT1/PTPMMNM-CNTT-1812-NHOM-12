@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </label>
         <button class="w-full rounded-lg bg-indigo-600 py-2.5 font-semibold text-white hover:bg-indigo-700">Gửi liên kết đặt lại</button>
     </form>
-    <a class="mt-5 block text-center text-sm font-semibold text-indigo-600 hover:underline" href="login.php">Quay lại đăng nhập</a>
+    <a class="mt-5 block text-center text-sm font-semibold text-indigo-600 hover:underline" href="dang_nhap.php">Quay lại đăng nhập</a>
 </main>
 </body>
 </html>

@@ -205,7 +205,7 @@ if (($_GET['action'] ?? '') === 'logout') {
 }
 
 if (($_GET['action'] ?? '') === 'login') {
-    require __DIR__ . '/login.php';
+    require __DIR__ . '/dang_nhap.php';
     exit;
 }
 
@@ -243,7 +243,7 @@ $currentUser = $auth->getCurrentUser();
 $isAuthenticated = $currentUser !== null;
 $isAdmin = $isAuthenticated && ProjectAccess::isSystemAdmin($currentUser);
 if ($isAuthenticated && ($_SESSION['user']['role'] ?? '') === 'admin') {
-    header('Location: admin_users.php', true, 303);
+    header('Location: quan_ly_nguoi_dung.php', true, 303);
     exit;
 }
 $requestedAction = $_POST['action'] ?? null;
@@ -518,7 +518,7 @@ if (!defined('TMS_PROJECT_DETAIL')) {
                 }
                 throw $e;
             }
-            header('Location: project_detail.php?id=' . $newProjectId . '&created=1', true, 303);
+            header('Location: chi_tiet_du_an.php?id=' . $newProjectId . '&created=1', true, 303);
             exit;
         }
     }
@@ -538,7 +538,7 @@ if (!defined('TMS_PROJECT_DETAIL')) {
     <main class="tms-shell max-w-7xl mx-auto px-4 py-8">
         <header class="tms-topbar flex flex-col md:flex-row justify-between items-center mb-8 bg-white p-6 rounded-xl shadow-sm border border-gray-100 gap-4">
             <div>
-                <a href="index.php" class="text-2xl font-bold text-indigo-600">🌍 Enterprise TMS</a>
+                <a href="index.php" class="tms-brand text-2xl font-bold text-indigo-600"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 12h17M12 3c2.4 2.4 3.6 5.4 3.6 9s-1.2 6.6-3.6 9c-2.4-2.4-3.6-5.4-3.6-9S9.6 5.4 12 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Enterprise TMS</a>
                 <p class="text-sm text-gray-500 mt-1" data-i18n="workspace.subtitle">Không gian làm việc dự án dịch thuật của bạn</p>
             </div>
             <div class="flex items-center gap-3">
@@ -633,7 +633,7 @@ if (!defined('TMS_PROJECT_DETAIL')) {
                                 </div>
                             </div>
                             <a class="block focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-lg"
-                               href="project_detail.php?id=<?= (int)$project['id'] ?>">
+                               href="chi_tiet_du_an.php?id=<?= (int)$project['id'] ?>">
                                 <span class="mt-4 block text-base font-bold text-slate-900" data-i18n-ignore><?= htmlspecialchars($project['name'], ENT_QUOTES, 'UTF-8') ?></span>
                                 <span class="mt-1 block min-h-10 text-sm text-slate-500" <?= empty($project['description']) ? 'data-i18n="workspace.no_project_description"' : 'data-i18n-ignore' ?>><?= htmlspecialchars((string)($project['description'] ?? ''), ENT_QUOTES, 'UTF-8') ?: 'Chưa có mô tả dự án.' ?></span>
                                 <div class="mt-4 flex items-center justify-between text-xs text-slate-500">
@@ -783,7 +783,7 @@ if (!defined('TMS_PROJECT_DETAIL')) {
             recentProjectList.replaceChildren();
             recent.forEach(card => {
                 const link = document.createElement('a');
-                link.href = `project_detail.php?id=${encodeURIComponent(card.dataset.projectCard)}`;
+                link.href = `chi_tiet_du_an.php?id=${encodeURIComponent(card.dataset.projectCard)}`;
                 link.className = 'tms-recent-project';
                 link.textContent = card.dataset.projectName || 'Dự án';
                 recentProjectList.append(link);
@@ -853,7 +853,7 @@ if (!defined('TMS_PROJECT_DETAIL')) {
             renderPins();
             renderProjects();
         }));
-        document.querySelectorAll('[data-project-card] a[href*="project_detail.php"]').forEach(link => link.addEventListener('click', () => {
+        document.querySelectorAll('[data-project-card] a[href*="chi_tiet_du_an.php"]').forEach(link => link.addEventListener('click', () => {
             const card = link.closest('[data-project-card]');
             if (!card) return;
             writeIds(recentKey, [card.dataset.projectCard, ...readIds(recentKey).filter(id => id !== card.dataset.projectCard)]);
@@ -964,7 +964,7 @@ $canExportAuditTrail = $isAuthenticated && $projectExists &&
 $versionQuery = $currentVersion
     ? 'version_id=' . (int)$versionId
     : 'project_id=' . $projectId;
-$workspaceAction = 'project_detail.php?id=' . $projectId;
+$workspaceAction = 'chi_tiet_du_an.php?id=' . $projectId;
 $getImportWorkStatus = static function (int $sourceVersionId, int $sourceProjectId) use ($conn): array {
     $result = queryParams(
         $conn,
@@ -4084,7 +4084,7 @@ if ($currentProjectRole !== null) {
     <div class="<?= ($currentProjectRole === 'Reviewer' || $currentProjectRole === 'Translator') ? 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full space-y-6' : 'tms-shell ' . ($currentProjectRole === 'Team Lead' ? 'tms-team-lead-dashboard-shell max-w-7xl mx-auto' : 'max-w-7xl mx-auto') . ' px-4 sm:px-6 lg:px-8 py-8' ?>">
         <header class="tms-topbar flex flex-col md:flex-row justify-between items-center mb-8 bg-white p-6 rounded-xl shadow-sm border border-gray-100 gap-4">
             <div>
-                <h1 class="text-2xl font-bold text-indigo-600">🌍 <span data-i18n="project.app_heading">Enterprise TMS &amp; Full Suite</span></h1>
+                <h1 class="tms-brand text-2xl font-bold text-indigo-600"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 12h17M12 3c2.4 2.4 3.6 5.4 3.6 9s-1.2 6.6-3.6 9c-2.4-2.4-3.6-5.4-3.6-9S9.6 5.4 12 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span data-i18n="project.app_heading">Enterprise TMS &amp; Full Suite</span></h1>
                 <p class="text-sm text-gray-500 mt-1" data-i18n="header_subtitle">Hệ thống quản lý dịch thuật cấp độ doanh nghiệp tích hợp TM, AI, Glossary & RBAC</p>
             </div>
             <div class="flex items-center gap-3 flex-wrap">
@@ -4150,7 +4150,7 @@ if ($currentProjectRole !== null) {
                 <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <?php foreach ($projects as $project): ?>
                         <a class="tms-project-link rounded-xl border border-gray-200 p-4 hover:border-indigo-400 hover:bg-indigo-50"
-                           href="project_detail.php?id=<?= (int)$project['id'] ?>">
+                           href="chi_tiet_du_an.php?id=<?= (int)$project['id'] ?>">
                             <span class="block font-semibold text-indigo-700"><?= htmlspecialchars($project['name'], ENT_QUOTES, 'UTF-8') ?></span>
                             <span class="mt-1 block text-xs text-gray-500">Project ID: <?= (int)$project['id'] ?></span>
                         </a>
@@ -4184,7 +4184,7 @@ if ($currentProjectRole !== null) {
         <div class="tms-side-panel tms-import-panel tms-accent-violet w-full h-full flex flex-col bg-white p-6 rounded-xl shadow-sm border border-gray-100">
             <h2 class="text-lg font-semibold text-gray-800 mb-2">📥 <span data-i18n="project.import_source">Nhập nguồn dữ liệu</span></h2>
             <p class="mb-4 text-sm text-gray-500"><span data-i18n="project.project_label" data-i18n-name="<?= htmlspecialchars((string)($projectName ?? ''), ENT_QUOTES, 'UTF-8') ?>" data-i18n-id="<?= $projectId ?>">Dự án: <?= htmlspecialchars((string)($projectName ?? ''), ENT_QUOTES, 'UTF-8') ?> (ID: <?= $projectId ?>)</span></p>
-            <form method="POST" enctype="multipart/form-data" class="tms-import-form" action="project_detail.php?id=<?= $projectId ?>&amp;locale=<?= rawurlencode($currentLocale) ?>&amp;version_id=<?= $versionId ?>">
+            <form method="POST" enctype="multipart/form-data" class="tms-import-form" action="chi_tiet_du_an.php?id=<?= $projectId ?>&amp;locale=<?= rawurlencode($currentLocale) ?>&amp;version_id=<?= $versionId ?>">
                 <input type="hidden" name="action" value="import_source">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                 <input type="hidden" name="project_id" value="<?= $projectId ?>">
@@ -4267,7 +4267,7 @@ if ($currentProjectRole !== null) {
                         !confirmDialog || !confirmCancel || !confirmContinue || !confirmPublish || !confirmField) return;
                     let isSubmitting = false;
                     let isPublishing = false;
-                    const importEndpoint = new URL('project_detail.php', window.location.href);
+                    const importEndpoint = new URL('chi_tiet_du_an.php', window.location.href);
                     const currentPageUrl = new URL(window.location.href);
                     importEndpoint.searchParams.set('id', form.elements.project_id.value);
                     ['locale', 'version_id'].forEach((parameter) => {
@@ -4490,7 +4490,7 @@ if ($currentProjectRole !== null) {
             </div>
             <?php if ($isProjectLeader): ?>
             <dialog class="tms-modal" id="add-member-modal" aria-labelledby="add-member-title">
-                <form method="POST" class="tms-modal-card" action="project_detail.php?id=<?= $projectId ?>&amp;locale=<?= rawurlencode($currentLocale) ?>&amp;version_id=<?= (int)$versionId ?>">
+                <form method="POST" class="tms-modal-card" action="chi_tiet_du_an.php?id=<?= $projectId ?>&amp;locale=<?= rawurlencode($currentLocale) ?>&amp;version_id=<?= (int)$versionId ?>">
                     <input type="hidden" name="action" value="add_project_member">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                     <input type="hidden" name="project_id" value="<?= $projectId ?>">
@@ -4547,7 +4547,7 @@ if ($currentProjectRole !== null) {
                                                 data-user-id="<?= (int)$member['id'] ?>"
                                                 data-username="<?= htmlspecialchars($member['username'], ENT_QUOTES, 'UTF-8') ?>"
                                                 data-role="<?= htmlspecialchars($member['role_in_project'], ENT_QUOTES, 'UTF-8') ?>">✎</button>
-                                        <form method="POST" action="project_detail.php?id=<?= $projectId ?>&amp;locale=<?= rawurlencode($currentLocale) ?>&amp;version_id=<?= (int)$versionId ?>"
+                                        <form method="POST" action="chi_tiet_du_an.php?id=<?= $projectId ?>&amp;locale=<?= rawurlencode($currentLocale) ?>&amp;version_id=<?= (int)$versionId ?>"
                                               onsubmit="return confirm('Bạn có chắc muốn xóa thành viên này khỏi dự án?');">
                                             <input type="hidden" name="action" value="remove_project_member">
                                             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
@@ -4568,7 +4568,7 @@ if ($currentProjectRole !== null) {
             </div>
             <?php if ($isProjectLeader): ?>
             <dialog class="tms-modal" id="edit-member-modal" aria-labelledby="edit-member-title">
-                <form method="POST" class="tms-modal-card" action="project_detail.php?id=<?= $projectId ?>&amp;locale=<?= rawurlencode($currentLocale) ?>&amp;version_id=<?= (int)$versionId ?>">
+                <form method="POST" class="tms-modal-card" action="chi_tiet_du_an.php?id=<?= $projectId ?>&amp;locale=<?= rawurlencode($currentLocale) ?>&amp;version_id=<?= (int)$versionId ?>">
                     <input type="hidden" name="action" value="update_project_member_role">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                     <input type="hidden" name="project_id" value="<?= $projectId ?>">
@@ -4841,7 +4841,7 @@ if ($currentProjectRole !== null) {
                             const error = document.getElementById('glossary-form-error');
                             if (!panel || !dialog || !form || !title || !error) return;
 
-                            const apiUrl = new URL('project_detail.php', window.location.href);
+                            const apiUrl = new URL('chi_tiet_du_an.php', window.location.href);
                             apiUrl.searchParams.set('id', <?= $projectId ?>);
                             apiUrl.searchParams.set('locale', <?= json_encode($currentLocale, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>);
                             const request = async (action, values = {}) => {
