@@ -28,9 +28,9 @@ RUN apt-get update \
         pgsql \
         simplexml \
         xml \
-        xmlreader \
         xmlwriter \
         zip \
+    && docker-php-ext-install xmlreader \
     && rm -rf /var/lib/apt/lists/*
 
 RUN a2enmod rewrite
