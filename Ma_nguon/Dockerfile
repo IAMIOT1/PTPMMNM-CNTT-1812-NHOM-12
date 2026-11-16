@@ -29,7 +29,8 @@ RUN apt-get update \
         xml \
         xmlwriter \
         zip \
-    && docker-php-ext-install dom xmlreader \
+    && docker-php-ext-install dom \
+    && CFLAGS="-I/usr/src/php/ext/dom" docker-php-ext-install xmlreader \
     && rm -rf /var/lib/apt/lists/*
 
 RUN a2enmod rewrite
