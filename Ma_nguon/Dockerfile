@@ -17,7 +17,6 @@ RUN apt-get update \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" \
         curl \
-        dom \
         gd \
         intl \
         mbstring \
@@ -30,7 +29,7 @@ RUN apt-get update \
         xml \
         xmlwriter \
         zip \
-    && docker-php-ext-install xmlreader \
+    && docker-php-ext-install dom xmlreader \
     && rm -rf /var/lib/apt/lists/*
 
 RUN a2enmod rewrite
