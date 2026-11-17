@@ -1,26 +1,62 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/src/Database.php';
-require_once __DIR__ . '/src/AuthManager.php';
-require_once __DIR__ . '/src/Csrf.php';
-require_once __DIR__ . '/src/DashboardApiService.php';
+ob_start();
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
 
-header('Content-Type: application/json; charset=utf-8');
-header('Cache-Control: no-store, private');
+$apiResponseSent = false;
 
-$respond = static function (int $status, array $body): never {
+$respond = static function (int $status, array $body) use (&$apiResponseSent): never {
+    $json = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+    $apiResponseSent = true;
+    while (ob_get_level() > 0) {
+        if (!ob_end_clean()) {
+            break;
+        }
+    }
+    header_remove('Location');
     http_response_code($status);
-    echo json_encode($body, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, private');
+    echo $json;
     exit;
 };
 
+register_shutdown_function(static function () use (&$apiResponseSent): void {
+    if ($apiResponseSent) {
+        return;
+    }
+    $error = error_get_last();
+    if (!is_array($error) || !in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        return;
+    }
+
+    error_log(sprintf('DASHBOARD_API_FATAL: %s in %s:%d', $error['message'], $error['file'], $error['line']));
+    $apiResponseSent = true;
+    while (ob_get_level() > 0) {
+        if (!ob_end_clean()) {
+            break;
+        }
+    }
+    header_remove('Location');
+    http_response_code(500);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, private');
+    echo '{"error":"Internal Server Error"}';
+});
+
 try {
+    require_once __DIR__ . '/src/Database.php';
+    require_once __DIR__ . '/src/AuthManager.php';
+    require_once __DIR__ . '/src/Csrf.php';
+    require_once __DIR__ . '/src/DashboardApiService.php';
+
     $connection = db();
     $auth = new AuthManager($connection);
     $user = $auth->getCurrentUser();
     if ($user === null) {
-        $respond(401, ['success' => false, 'message' => 'Your session has expired. Sign in again.']);
+        $respond(401, ['error' => 'Unauthorized']);
     }
 
     $service = new DashboardApiService($connection, $user);
@@ -52,6 +88,9 @@ try {
     }
     $respond(200, ['success' => true, 'data' => $service->mutate($payload)]);
 } catch (DashboardApiHttpException $exception) {
+    if ($exception->statusCode === 401) {
+        $respond(401, ['error' => 'Unauthorized']);
+    }
     $respond($exception->statusCode, ['success' => false, 'message' => $exception->getMessage()]);
 } catch (JsonException) {
     $respond(400, ['success' => false, 'message' => 'Request body contains invalid JSON.']);
@@ -59,5 +98,9 @@ try {
     $respond(422, ['success' => false, 'message' => $exception->getMessage()]);
 } catch (Throwable $exception) {
     error_log('DASHBOARD_API_FAILED: ' . $exception->getMessage());
-    $respond(500, ['success' => false, 'message' => 'The dashboard request could not be completed.']);
+    $respond(500, [
+        'error' => 'Internal Server Error',
+        'success' => false,
+        'message' => 'The dashboard request could not be completed.',
+    ]);
 }

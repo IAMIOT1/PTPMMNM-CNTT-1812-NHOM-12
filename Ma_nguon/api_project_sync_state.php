@@ -13,7 +13,7 @@ try {
     $user = (new AuthManager($connection))->getCurrentUser();
     if ($user === null) {
         http_response_code(401);
-        echo json_encode(['success' => false, 'message' => 'Phiên đăng nhập đã hết hạn.']);
+        echo json_encode(['error' => 'Unauthorized']);
         exit;
     }
 
