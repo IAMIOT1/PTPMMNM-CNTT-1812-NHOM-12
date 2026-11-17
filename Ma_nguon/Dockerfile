@@ -62,7 +62,10 @@ cat > /etc/apache2/sites-available/000-default.conf <<'APACHE_SITE'
     DirectoryIndex index.php index.html
 
     RewriteEngine On
-    RewriteRule ^/?(icons/|manifest\.json|sw\.js|debug_apache\.php) - [L]
+    RewriteRule ^/icons/ - [L]
+    RewriteRule ^/manifest\.json$ - [L]
+    RewriteRule ^/sw.js$ - [L]
+    RewriteRule ^/debug_apache\.php$ - [L]
 
     <Directory /var/www/html>
         Options FollowSymLinks
