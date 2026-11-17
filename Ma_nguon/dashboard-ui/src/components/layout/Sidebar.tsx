@@ -55,7 +55,7 @@ function Logo({ compact = false }: { compact?: boolean }) {
       </span>
       {!compact && (
         <span className="min-w-0">
-          <span className="block text-[15px] font-bold tracking-tight text-white">Lingua<span className="text-violet-300">Desk</span></span>
+          <span className="block text-[15px] font-bold tracking-tight text-white">IAMI<span className="text-violet-300">OT</span></span>
           <span className="mt-0.5 block text-[10px] font-medium tracking-wide text-slate-400">{t('TRANSLATION STUDIO')}</span>
         </span>
       )}
@@ -176,7 +176,7 @@ export function MobileSidebar({ open, onClose }: { open: boolean; onClose: () =>
           </button>
         </div>
         <NavigationContent collapsed={false} onNavigate={() => dialogRef.current?.close()} />
-        <p className="px-5 py-4 text-[10px] text-slate-500">{t('LinguaDesk · Translation workspace')}</p>
+        <p className="px-5 py-4 text-[10px] text-slate-500">{t('IAMIOT · Translation workspace')}</p>
       </div>
     </dialog>
   )
