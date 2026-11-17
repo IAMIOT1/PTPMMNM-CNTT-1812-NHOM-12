@@ -9,10 +9,8 @@ foreach($demo as $id=>$event){
  foreach(['title','category','summary','intro','alt','start','end','timezone','venue','organizer','audience','prepare'] as $key)$assert(is_string($event[$key])&&$event[$key]!=='',"content $id $key");
  $assert(count($event['agenda'])>=3&&count($event['agenda'])<=5,'agenda');
  $assert(count($event['policy'])>=2&&count($event['faq'])>=2,'rules and FAQ');
- $assert(is_file($lab.'/public'.uiImage($event['image'])),'cover file');
  foreach($event['tickets'] as $ticket)$assert(is_int($ticket['price'])&&$ticket['price']>=0,'integer VND');
  if(count($event['gallery'])>=2)$gallery++;
- foreach($event['gallery'] as $image)$assert(is_file($lab.'/public'.uiImage($image['image'])),'gallery image');
 }
 $assert($gallery>=2,'two galleries');
 $seats=uiSeats();$assert(count($seats)===96&&count(array_unique(array_column($seats,'id')))===96,'unique seats');

@@ -12,13 +12,24 @@
     installStatus.textContent = message
     installStatus.hidden = false
   }
-  let deferredInstallPrompt
+  let deferredInstallPrompt = null
   const supportsWebInstall = typeof Navigator.prototype.install === 'function'
+  let isInstalled = window.matchMedia('(display-mode: standalone)').matches
+    || navigator.standalone === true
 
   installButton.id = 'pwa-install-button'
   installButton.type = 'button'
   installButton.className = 'pwa-install-button'
   installButton.hidden = true
+  const updateInstallButton = () => {
+    installButton.hidden = isInstalled || (!supportsWebInstall && deferredInstallPrompt === null)
+  }
+  const markInstalled = () => {
+    isInstalled = true
+    deferredInstallPrompt = null
+    updateInstallButton()
+  }
+
   installButton.addEventListener('click', async () => {
     if (installButton.getAttribute('aria-disabled') === 'true') return
     installButton.setAttribute('aria-disabled', 'true')
@@ -26,21 +37,27 @@
     try {
       if (supportsWebInstall) {
         await navigator.install()
+        markInstalled()
         setStatus(labels().installed)
-        installButton.hidden = true
       } else if (deferredInstallPrompt) {
         const promptEvent = deferredInstallPrompt
-        deferredInstallPrompt = undefined
+        deferredInstallPrompt = null
+        updateInstallButton()
         await promptEvent.prompt()
         const { outcome } = await promptEvent.userChoice
-        setStatus(outcome === 'accepted' ? labels().installed : labels().cancelled)
-        if (!deferredInstallPrompt) installButton.hidden = true
+        if (outcome === 'accepted') {
+          markInstalled()
+          setStatus(labels().installed)
+        } else {
+          setStatus(labels().cancelled)
+          updateInstallButton()
+        }
       }
     } catch (error) {
       const isAbort = error instanceof DOMException && error.name === 'AbortError'
       setStatus(isAbort ? labels().cancelled : labels().failed)
       if (!isAbort) console.error('Unable to install the IAMIOT web app.', error)
-      if (!supportsWebInstall && !deferredInstallPrompt) installButton.hidden = true
+      if (!supportsWebInstall) updateInstallButton()
     } finally {
       installButton.removeAttribute('aria-disabled')
     }
@@ -81,19 +98,19 @@
 
   if (supportsWebInstall) {
     loadInstallStyles()
-    installButton.hidden = false
   }
+  updateInstallButton()
 
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault()
     deferredInstallPrompt = event
-    loadInstallStyles()
-    if (!supportsWebInstall) installButton.hidden = false
+    if (!isInstalled) loadInstallStyles()
+    updateInstallButton()
   })
 
   window.addEventListener('appinstalled', () => {
-    deferredInstallPrompt = undefined
-    installButton.hidden = true
+    markInstalled()
+    loadInstallStyles()
     setStatus(labels().installed)
   })
 

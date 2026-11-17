@@ -41,7 +41,6 @@ COPY --chown=root:www-data icons/ /var/www/html/icons/
 COPY --chown=root:www-data database/ database/
 COPY --chown=root:www-data data/ data/
 COPY --chown=root:www-data lang/ lang/
-COPY --chown=root:www-data public/ public/
 COPY --chown=root:www-data resources/ resources/
 COPY --chown=root:www-data src/ src/
 COPY --chown=root:www-data templates/ templates/
