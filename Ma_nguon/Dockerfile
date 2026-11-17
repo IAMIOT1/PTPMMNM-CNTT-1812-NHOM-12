@@ -1,4 +1,13 @@
 # syntax=docker/dockerfile:1
+FROM node:22-alpine AS dashboard-build
+WORKDIR /workspace/dashboard-ui
+COPY dashboard-ui/package*.json ./
+RUN npm ci
+COPY dashboard-ui/ ./
+RUN npm run build \
+    && test -f dist/index.html \
+    && ! grep -q 'src/main.tsx' dist/index.html
+
 FROM php:8.2-apache
 
 ENV PORT=10000
@@ -36,6 +45,7 @@ COPY --chown=root:www-data src/ src/
 COPY --chown=root:www-data templates/ templates/
 COPY --chown=root:www-data uploads/support/.htaccess uploads/support/.htaccess
 COPY --chown=root:www-data vendor/ vendor/
+COPY --from=dashboard-build --chown=root:www-data /workspace/dashboard-ui/dist/ /var/www/html/dashboard-ui/dist/
 
 RUN <<'CONFIGURE_APACHE'
 set -eu
@@ -54,6 +64,19 @@ cat > /etc/apache2/sites-available/000-default.conf <<'APACHE_SITE'
         Options FollowSymLinks
         AllowOverride All
         Require all granted
+    </Directory>
+
+    Alias /dashboard-ui/ /var/www/html/dashboard-ui/dist/
+
+    <Directory /var/www/html/dashboard-ui/dist>
+        Options FollowSymLinks
+        AllowOverride None
+        Require all granted
+        RewriteEngine On
+        RewriteBase /dashboard-ui/
+        RewriteCond %{REQUEST_FILENAME} !-f
+        RewriteCond %{REQUEST_FILENAME} !-d
+        RewriteRule ^ index.html [L]
     </Directory>
 
     <DirectoryMatch "^/var/www/html/(?:database|resources/views|src|templates|tests|tools|vendor)(?:/|$)">

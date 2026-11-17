@@ -451,11 +451,30 @@ $errorTranslationKey = match ($error) {
             <div class="max-h-[400px] overflow-y-auto rounded-lg border border-slate-200">
                 <ul class="divide-y divide-slate-100">
                     <?php foreach ($supportTickets as $ticket): ?>
+                        <?php
+                        $statusPresentation = match ($ticket['status']) {
+                            'resolved' => [
+                                'key' => 'support.ticket.status.resolved',
+                                'label' => 'Đã giải quyết',
+                                'class' => 'bg-emerald-50 text-emerald-700',
+                            ],
+                            'in_progress' => [
+                                'key' => 'support.ticket.status.in_progress',
+                                'label' => 'Đang xử lý',
+                                'class' => 'bg-blue-50 text-blue-700',
+                            ],
+                            default => [
+                                'key' => 'support.ticket.status.pending',
+                                'label' => 'Chờ xử lý',
+                                'class' => 'bg-amber-50 text-amber-800',
+                            ],
+                        };
+                        ?>
                         <li class="p-3 sm:p-3.5">
                             <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                                 <p class="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900"><?= htmlspecialchars($ticket['title'], ENT_QUOTES, 'UTF-8') ?></p>
-                                <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold <?= $ticket['status'] === 'resolved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800' ?>">
-                                    <?= $ticket['status'] === 'resolved' ? 'Đã giải quyết' : 'Đang chờ xử lý' ?>
+                                <span data-i18n="<?= $statusPresentation['key'] ?>" class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold <?= $statusPresentation['class'] ?>">
+                                    <?= $statusPresentation['label'] ?>
                                 </span>
                             </div>
                             <p class="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-slate-600"><?= htmlspecialchars($ticket['message'], ENT_QUOTES, 'UTF-8') ?></p>

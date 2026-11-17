@@ -4,6 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/helper.php';
 require_once __DIR__ . '/../src/AuditLogPresenter.php';
 require_once __DIR__ . '/../src/LanguageCatalog.php';
+require_once __DIR__ . '/../src/MyMemoryTranslationService.php';
 
 $vietnamese = require __DIR__ . '/../lang/vi.php';
 $english = require __DIR__ . '/../lang/en.php';
@@ -108,6 +109,20 @@ $languageCodes = array_column($languageCatalog, 'code');
 same(count($languageCatalog), 183, 'language-catalog-has-all-current-iso-639-1-codes');
 same(count(array_unique($languageCodes)), count($languageCodes), 'language-catalog-codes-are-unique');
 same(in_array('vi', $languageCodes, true) && in_array('en', $languageCodes, true) && in_array('zu', $languageCodes, true), true, 'language-catalog-includes-common-and-less-common-languages');
+same(array_map(
+    static fn(string $code): string => MyMemoryTranslationService::normalizeLanguageCode($code),
+    $languageCodes
+), $languageCodes, 'mymemory-normalizes-every-ui-language-code');
+same(
+    [
+        MyMemoryTranslationService::normalizeLanguageCode(' ZH-CN '),
+        MyMemoryTranslationService::normalizeLanguageCode('pt_BR'),
+        MyMemoryTranslationService::normalizeLanguageCode('IW'),
+        MyMemoryTranslationService::normalizeLanguageCode('auto', true),
+    ],
+    ['zh', 'pt', 'he', 'auto'],
+    'mymemory-normalizes-regional-and-legacy-language-aliases'
+);
 $catalogHasBilingualNames = count(array_filter(
     $languageCatalog,
     static fn(array $language): bool => $language['name_en'] !== '' && $language['name_vi'] !== ''
@@ -559,25 +574,52 @@ $providerService = file_get_contents(__DIR__ . '/../src/TranslationProviderServi
 same(str_contains($workspaceMarkup, 'TranslationProviderService')
     && str_contains($workspaceMarkup, '$_POST[\'translator_provider\']')
     && str_contains($workspaceMarkup, '$translatorProvider')
-    && str_contains($workspaceMarkup, '->translate(')
+    && (str_contains($workspaceMarkup, '->translate(') || str_contains($workspaceMarkup, '->translateWithMetadata('))
     && str_contains($providerService, 'https://translate.googleapis.com/translate_a/single')
     && str_contains($providerService, 'TMS_LIBRETRANSLATE_URL')
-    && str_contains($providerService, 'QUOTA_EXCEEDED'),
+    && str_contains($providerService, 'QUOTA_EXCEEDED')
+    && !str_contains($workspaceMarkup, 'AZURE_TRANSLATOR_KEY')
+    && !str_contains($providerService, 'AZURE_TRANSLATOR_KEY'),
     true,
     'translation-backend-supports-provider-selection');
-same(str_contains($workspaceMarkup, 'splitIntoBatches(pendingRows)'), true, 'translation-frontend-chunks-pending-rows');
-same(str_contains($workspaceMarkup, 'setTimeout(resolve, 250)'), true, 'translation-frontend-delays-between-batches');
-same(str_contains($workspaceMarkup, 'translation.batch_progress'), true, 'translation-frontend-reports-batch-progress');
+$myMemoryService = file_get_contents(__DIR__ . '/../src/MyMemoryTranslationService.php');
+same(str_contains($myMemoryService, 'function normalizeLanguageCode(')
+    && str_contains($myMemoryService, "'langpair' => \$sourceLocale . '|' . \$targetLocale")
+    && str_contains($myMemoryService, '/INVALID TARGET LANGUAGE/i')
+    && str_contains($myMemoryService, "'target_locale' => 'en'")
+    && str_contains($providerService, 'translateWithMetadata(')
+    && str_contains($workspaceMarkup, "'code' => 'MYMEMORY_LANGUAGE_FALLBACK'")
+    && str_contains($workspaceMarkup, "'target_locale' => \$translationResult['target_locale']"),
+    true,
+    'mymemory-normalizes-langpair-and-falls-back-with-visible-warning');
 same(str_contains($workspaceMarkup, 'failedBatches.push'), true, 'translation-frontend-continues-after-batch-failure');
-same(str_contains($workspaceMarkup, 'if (pendingRows.length <= 10)'), true, 'translation-frontend-uses-sequential-path-for-ten-or-fewer-rows');
-same(str_contains($workspaceMarkup, 'for (const [rowIndex, row] of pendingRows.entries())'), true, 'translation-small-batches-are-processed-in-order');
-same(str_contains($workspaceMarkup, 'await processBatch([row], rowIndex, pendingRows.length, true)'), true, 'translation-sequential-path-awaits-each-single-row');
-same(str_contains($workspaceMarkup, '} else {' . "\n                            const batches = splitIntoBatches(pendingRows);"), true, 'translation-large-batches-use-chunked-concurrency-path');
-same(str_contains($workspaceMarkup, 'const workerCount = Math.min(5, batches.length)'), true, 'translation-pool-caps-concurrent-workers-at-five');
-same(str_contains($workspaceMarkup, 'Promise.allSettled('), true, 'translation-pool-waits-for-limited-workers');
+same(str_contains($workspaceMarkup, 'for (const [rowIndex, row] of pendingRows.entries())')
+    && str_contains($workspaceMarkup, 'await processBatch([row], rowIndex, pendingRows.length);')
+    && str_contains($workspaceMarkup, 'const translationRequestDelayMs = 1200;')
+    && str_contains($workspaceMarkup, 'setTimeout(resolve, translationRequestDelayMs)')
+    && str_contains($workspaceMarkup, 'input.value = translation.translatedText;')
+    && str_contains($workspaceMarkup, "new Event('input', {bubbles: true})")
+    && !str_contains($workspaceMarkup, 'splitIntoBatches(pendingRows)')
+    && !str_contains($workspaceMarkup, 'const workerCount = Math.min(5, batches.length)'),
+    true,
+    'translation-frontend-processes-each-row-sequentially-with-a-delay');
 same(str_contains($workspaceMarkup, 'activeTranslatedIds.add(stringId)'), true, 'translation-progress-counts-successful-rows-once');
-same(str_contains($workspaceMarkup, 'translatedRows = Math.max(translatedRows, reportedProgress)'), true, 'translation-progress-is-monotonic-across-workers');
-same(str_contains($workspaceMarkup, 'Math.ceil(rows.length / 15)'), true, 'translation-pool-aims-for-fifteen-rows-per-batch');
+$processBatchStart = strpos($workspaceMarkup, 'const processBatch = async (batch, rowIndex, rowCount)');
+$processBatchEnd = $processBatchStart === false
+    ? false
+    : strpos($workspaceMarkup, 'completed = 0;', $processBatchStart);
+$processBatchMarkup = $processBatchStart === false || $processBatchEnd === false
+    ? ''
+    : substr($workspaceMarkup, $processBatchStart, $processBatchEnd - $processBatchStart);
+$rowUpdatePosition = strpos($processBatchMarkup, 'input.value = translation.translatedText;');
+$rowProgressPosition = strpos($processBatchMarkup, 'updateProgress();', strpos($processBatchMarkup, 'finally {'));
+same(str_contains($processBatchMarkup, 'translatedRows = Math.max(translatedRows, reportedProgress)')
+    && str_contains($processBatchMarkup, "new Event('input', {bubbles: true})")
+    && $rowUpdatePosition !== false
+    && $rowProgressPosition !== false
+    && $rowUpdatePosition < $rowProgressPosition,
+    true,
+    'translation-result-updates-row-and-progress-before-next-request');
 
 $autoTargetsValid = true;
 $autoLabelsConsistent = true;
@@ -641,11 +683,11 @@ foreach (['login.php', 'profile.php', 'project_detail.php', 'translate.php', 'ad
         && !file_exists(__DIR__ . '/../' . $page);
 }
 same($unusedLegacyAliasesAreRemoved, true, 'unused-english-page-aliases-are-removed');
-$adminNavigationPointsToUserManagement = str_contains(
+$adminNavigationPointsToReactDashboard = str_contains(
     file_get_contents(__DIR__ . '/../templates/tms-header.php'),
-    'href="quan_ly_nguoi_dung.php"'
+    'href="/dashboard-ui/"'
 );
-same($adminNavigationPointsToUserManagement, true, 'admin-navigation-opens-standalone-admin-page');
+same($adminNavigationPointsToReactDashboard, true, 'admin-navigation-opens-react-dashboard');
 $sharedHeaderMarkup = file_get_contents(__DIR__ . '/../templates/tms-header.php');
 same(str_contains($sharedHeaderMarkup, 'href="ho_so_ca_nhan.php#support-requests"'), true, 'account-menu-links-to-support-form');
 $profilePageMarkup = file_get_contents(__DIR__ . '/../resources/views/ho_so_ca_nhan.php');

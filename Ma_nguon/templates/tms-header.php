@@ -7,7 +7,7 @@ if ($currentUser):
    href="tm_repository.php" data-i18n="menu.tm_repository">Kho TM</a>
 <?php if (ProjectAccess::isSystemAdmin($currentUser)): ?>
     <a class="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
-       href="quan_ly_nguoi_dung.php">
+           href="/dashboard-ui/">
         <span aria-hidden="true">🛡️</span>
         <span data-i18n="menu.system_admin">Quản trị hệ thống</span>
     </a>

@@ -347,7 +347,7 @@ CREATE INDEX release_sync_history_project_created_idx
 -- 5. Bảng Nhật ký kiểm toán (Audit Trail)
 CREATE TABLE audit_logs (
     id SERIAL PRIMARY KEY,
-    project_id INT REFERENCES projects(id) ON DELETE CASCADE,
+    project_id INT REFERENCES projects(id) ON DELETE SET NULL,
     string_id INT REFERENCES strings(id) ON DELETE SET NULL,
     actor_user_id INT REFERENCES users(id) ON DELETE SET NULL,
     target_user_id INT REFERENCES users(id) ON DELETE SET NULL,
@@ -357,6 +357,10 @@ CREATE TABLE audit_logs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX audit_logs_project_created_idx
+    ON audit_logs (project_id, created_at DESC, id DESC);
+CREATE INDEX audit_logs_actor_created_idx
+    ON audit_logs (actor_user_id, created_at DESC, id DESC);
 CREATE INDEX audit_logs_action_created_idx
     ON audit_logs (action_type, created_at DESC, id DESC);
 
@@ -365,8 +369,8 @@ CREATE TABLE support_tickets (
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(200) NOT NULL CHECK (length(btrim(title)) BETWEEN 3 AND 200),
     message TEXT NOT NULL CHECK (length(btrim(message)) BETWEEN 10 AND 10000),
-    status VARCHAR(10) NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'resolved')),
+    status VARCHAR(16) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'in_progress', 'resolved')),
     image_path VARCHAR(500),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

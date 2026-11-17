@@ -12,7 +12,7 @@ $error = '';
 if ($auth->isLoggedIn()) {
     $currentUser = $auth->getCurrentUser();
     header(
-        'Location: ' . (($currentUser['role'] ?? '') === 'admin' ? 'quan_ly_nguoi_dung.php' : 'index.php'),
+        'Location: ' . (($currentUser['role'] ?? '') === 'admin' ? '/dashboard-ui/' : '/index.php'),
         true,
         303
     );
@@ -26,8 +26,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($auth->login($username, $password)) {
         $destination = ($_SESSION['user']['role'] ?? '') === 'admin'
-            ? 'quan_ly_nguoi_dung.php'
-            : 'index.php';
+            ? '/dashboard-ui/'
+            : '/index.php';
         header('Location: ' . $destination, true, 303);
         exit;
     } else {

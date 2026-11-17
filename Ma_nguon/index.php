@@ -211,6 +211,7 @@ if (($_GET['action'] ?? '') === 'login') {
 
 require_once __DIR__ . '/src/Csrf.php';
 require_once __DIR__ . '/src/ProjectAccess.php';
+require_once __DIR__ . '/src/ProjectSyncState.php';
 require_once __DIR__ . '/src/JsonParser.php';
 require_once __DIR__ . '/src/TranslationStats.php';
 require_once __DIR__ . '/src/ReleaseExporter.php';
@@ -242,8 +243,8 @@ $allLocales = LanguageCatalog::all();
 $currentUser = $auth->getCurrentUser();
 $isAuthenticated = $currentUser !== null;
 $isAdmin = $isAuthenticated && ProjectAccess::isSystemAdmin($currentUser);
-if ($isAuthenticated && ($_SESSION['user']['role'] ?? '') === 'admin') {
-    header('Location: quan_ly_nguoi_dung.php', true, 303);
+if ($isAdmin) {
+    header('Location: /dashboard-ui/', true, 303);
     exit;
 }
 $requestedAction = $_POST['action'] ?? null;
@@ -303,10 +304,11 @@ if (($_POST['action'] ?? '') === 'delete_project') {
     try {
         $ownedProjectRes = queryParams(
             $conn,
-            'SELECT id FROM projects WHERE id = $1 AND created_by = $2 FOR UPDATE',
+            'SELECT id, name FROM projects WHERE id = $1 AND created_by = $2 FOR UPDATE',
             [(int)$deleteProjectId, (int)$currentUser['id']]
         );
-        if (!pg_fetch_assoc($ownedProjectRes)) {
+        $ownedProject = pg_fetch_assoc($ownedProjectRes);
+        if (!$ownedProject) {
             pg_query($conn, 'ROLLBACK');
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'Không tìm thấy dự án hoặc bạn không phải chủ sở hữu.'], JSON_UNESCAPED_UNICODE);
@@ -346,7 +348,14 @@ if (($_POST['action'] ?? '') === 'delete_project') {
 
         queryParams($conn, 'DELETE FROM glossary WHERE project_id = $1', [(int)$deleteProjectId]);
         queryParams($conn, 'DELETE FROM translation_memory WHERE project_id = $1', [(int)$deleteProjectId]);
-        queryParams($conn, 'DELETE FROM audit_logs WHERE project_id = $1', [(int)$deleteProjectId]);
+        (new AuditLogger($conn))->log(
+            (int)$deleteProjectId,
+            null,
+            'DELETE_PROJECT',
+            'Deleted project [' . (string)$ownedProject['name'] . '] (ID ' . (int)$deleteProjectId . ').',
+            (int)$currentUser['id']
+        );
+        queryParams($conn, 'UPDATE audit_logs SET project_id = NULL WHERE project_id = $1', [(int)$deleteProjectId]);
         $deletedProjectRes = queryParams(
             $conn,
             'DELETE FROM projects WHERE id = $1 AND created_by = $2 RETURNING id',
@@ -468,6 +477,7 @@ $dashboardStats = [
         ? round(array_sum(array_column($projects, 'progress_percent')) / count($projects), 1)
         : 0.0,
 ];
+$projectSyncRevision = ProjectSyncState::fingerprint($conn, (int)$currentUser['id']);
 
 if (!defined('TMS_PROJECT_DETAIL')) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create_project') {
@@ -509,6 +519,13 @@ if (!defined('TMS_PROJECT_DETAIL')) {
                      ON CONFLICT DO NOTHING",
                     [$newProjectId]
                 );
+                (new AuditLogger($conn))->log(
+                    $newProjectId,
+                    null,
+                    'CREATE_PROJECT',
+                    "Created project [{$projectName}].",
+                    (int)$currentUser['id']
+                );
                 if (pg_query($conn, 'COMMIT') === false) {
                     throw new RuntimeException('PROJECT_CREATE_COMMIT_FAILED');
                 }
@@ -533,8 +550,9 @@ if (!defined('TMS_PROJECT_DETAIL')) {
         <link rel="stylesheet" href="tms.css">
         <script src="tms-theme.js" defer></script>
         <script src="tms-sync-back.js" defer></script>
+        <script src="tms-project-sync.js" defer></script>
     </head>
-    <body class="bg-gray-50 text-gray-800 font-sans">
+    <body class="bg-gray-50 text-gray-800 font-sans" data-project-sync-revision="<?= htmlspecialchars($projectSyncRevision, ENT_QUOTES, 'UTF-8') ?>">
     <main class="tms-shell max-w-7xl mx-auto px-4 py-8">
         <header class="tms-topbar flex flex-col md:flex-row justify-between items-center mb-8 bg-white p-6 rounded-xl shadow-sm border border-gray-100 gap-4">
             <div>
@@ -2294,8 +2312,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
                 'progress_translated' => (int)($progress['translated'] ?? 0),
             ]);
         }
-        $translatedText = (new TranslationProviderService(new MyMemoryTranslationService()))
-            ->translate($translatorProvider, $sourceText, $sourceLocale, $currentLocale);
+        $translationResult = (new TranslationProviderService(new MyMemoryTranslationService()))
+            ->translateWithMetadata($translatorProvider, $sourceText, $sourceLocale, $currentLocale);
+        $translatedText = $translationResult['translated_text'];
         $respond([
             'success' => true,
             'translated_text' => $translatedText,
@@ -2303,9 +2322,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
             'string_id' => (int)$stringId,
             'locale' => $currentLocale,
             'provider' => $translatorProvider,
+            'fallback' => $translationResult['fallback'],
+            'target_locale' => $translationResult['target_locale'],
+            'requested_target_locale' => $translationResult['requested_target_locale'],
+            'fallback_reason' => $translationResult['fallback_reason'],
         ]);
     } catch (Throwable $exception) {
-        error_log('GOOGLE_TRANSLATION_TEXT_FAILED: ' . $exception->getMessage());
+        error_log('TRANSLATION_TEXT_FAILED: ' . $exception->getMessage());
         $errorCode = $exception->getMessage();
         $providerLabel = match ($translatorProvider ?? TranslationProviderService::MYMEMORY) {
             TranslationProviderService::GOOGLE => 'Google Translate',
@@ -2315,6 +2338,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
         $isRateLimited = $exception->getCode() === 429 ||
             str_contains($errorCode, 'HTTP 429') ||
             str_contains($errorCode, 'QUOTA_EXCEEDED');
+        $isUnsupportedLanguage = str_starts_with($errorCode, 'MYMEMORY_UNSUPPORTED_TARGET_LANGUAGE');
         $message = match ($exception->getMessage()) {
             'MYMEMORY_CURL_MISSING' => 'Máy chủ chưa bật PHP cURL.',
             'MYMEMORY_HTTP_ERROR' => 'MyMemory trả về lỗi HTTP.',
@@ -2323,11 +2347,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
             'MYMEMORY_EMAIL_INVALID' => 'Email MyMemory trong cấu hình không hợp lệ.',
             default => 'MyMemory không khả dụng lúc này. Vui lòng thử lại.',
         };
+        if ($isUnsupportedLanguage) {
+            $message = 'MyMemory không hỗ trợ mã ngôn ngữ đích đã chọn và bản dịch dự phòng sang tiếng Anh cũng thất bại.';
+        }
         if ($isRateLimited) {
             $message = $providerLabel . ' đang giới hạn tần suất hoặc đã hết quota (HTTP 429). Vui lòng đổi nhà cung cấp dịch hoặc thử lại sau.';
         }
         $safeDetails = preg_replace('/([?&](?:key|token|api_key)=)[^&\s]+/i', '$1[redacted]', $errorCode) ?? $errorCode;
-        if (!$isRateLimited && !in_array($exception->getMessage(), [
+        if (!$isRateLimited && !$isUnsupportedLanguage && !in_array($exception->getMessage(), [
             'MYMEMORY_TEXT_INVALID',
             'MYMEMORY_LOCALE_INVALID',
             'MYMEMORY_EMAIL_INVALID',
@@ -2352,7 +2379,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
             'retryable' => $isRateLimited,
             'retry_after_seconds' => $isRateLimited ? 5 : null,
             'details' => $safeDetails,
-        ], $isRateLimited ? 429 : 502);
+        ], $isRateLimited ? 429 : ($isUnsupportedLanguage ? 422 : 502));
     }
 }
 
@@ -2589,12 +2616,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
             }
 
             try {
-                $targetText = $translator->translate(
+                $translationResult = $translator->translateWithMetadata(
                     $translatorProvider,
                     (string)$row['source_text'],
                     $batchSourceLocale,
                     $batchTargetLocale
                 );
+                $targetText = $translationResult['translated_text'] ?? null;
+                if (!is_string($targetText) || trim($targetText) === '') {
+                    throw new RuntimeException('Translation service returned no translated text.');
+                }
+                if (($translationResult['fallback'] ?? false) === true) {
+                    $warnings[] = [
+                        'stringId' => $stringId,
+                        'code' => 'MYMEMORY_LANGUAGE_FALLBACK',
+                        'message' => sprintf(
+                            'MyMemory returned English because it could not translate to %s.',
+                            $batchTargetLocale
+                        ),
+                    ];
+                }
             } catch (Throwable $exception) {
                 $isRateLimited = $exception->getCode() === 429 ||
                     str_contains($exception->getMessage(), 'HTTP 429') ||
@@ -2605,7 +2646,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
                     '$1[redacted]',
                     $exception->getMessage()
                 ) ?? $exception->getMessage();
-                error_log(sprintf('GOOGLE_TRANSLATION_BATCH_ITEM_FAILED string_id=%d: %s', $stringId, $details));
+                error_log(sprintf('TRANSLATION_BATCH_ITEM_FAILED string_id=%d: %s', $stringId, $details));
                 $errors[] = [
                     'stringId' => $stringId,
                     'message' => $isRateLimited
@@ -2709,7 +2750,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
             'progress_translated' => (int)($batchProgress['translated'] ?? 0),
         ]);
     } catch (Throwable $exception) {
-        error_log('GOOGLE_TRANSLATION_BATCH_FAILED: ' . $exception->getMessage());
+        error_log('TRANSLATION_BATCH_FAILED: ' . $exception->getMessage());
         $respond([
             'success' => false,
             'message' => 'Không thể xử lý gói dịch. Các gói đã hoàn tất vẫn được giữ nguyên.',
@@ -2898,6 +2939,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                      ON CONFLICT DO NOTHING",
                     [$newProjectId]
                 );
+                (new AuditLogger($conn))->log(
+                    $newProjectId,
+                    null,
+                    'CREATE_PROJECT',
+                    "Created project [{$projectName}].",
+                    (int)$currentUser['id']
+                );
                 if (pg_query($conn, 'COMMIT') === false) {
                     throw new RuntimeException('PROJECT_CREATE_COMMIT_FAILED');
                 }
@@ -2946,6 +2994,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     );
                     $memberChanged = pg_fetch_assoc($memberRes) !== false;
                     if ($memberChanged) {
+                        $auditLogger->log(
+                            $targetProjectId,
+                            null,
+                            'SET_PROJECT_MEMBER_ROLE',
+                            "Set user ID {$memberUserId} project role to {$memberRole}.",
+                            (int)$currentUser['id'],
+                            $memberUserId
+                        );
                         $projectNameRes = queryParams($conn, 'SELECT name FROM projects WHERE id = $1', [$targetProjectId]);
                         $projectName = (string)pg_fetch_result($projectNameRes, 0, 'name');
                         NotificationManager::create(
@@ -2993,20 +3049,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             http_response_code(403);
             $errorMessage = 'Chỉ Trưởng nhóm của dự án hiện tại mới được quản lý thành viên.';
         } else {
-            $updateMemberRes = queryParams(
-                $conn,
-                'UPDATE project_members pm
-                 SET role_in_project = $3
-                 FROM projects p
-                 WHERE pm.project_id = $1
-                   AND pm.user_id = $2
-                   AND p.id = pm.project_id
-                   AND p.created_by IS DISTINCT FROM pm.user_id
-                   AND pm.role_in_project IS DISTINCT FROM $3
-                 RETURNING pm.user_id',
-                [$targetProjectId, $memberUserId, $memberRole]
-            );
-            if (pg_fetch_assoc($updateMemberRes)) {
+            if (pg_query($conn, 'BEGIN') === false) {
+                throw new RuntimeException('PROJECT_MEMBER_ROLE_TRANSACTION_FAILED');
+            }
+            try {
+                $updateMemberRes = queryParams(
+                    $conn,
+                    'UPDATE project_members pm
+                     SET role_in_project = $3
+                     FROM projects p
+                     WHERE pm.project_id = $1
+                       AND pm.user_id = $2
+                       AND p.id = pm.project_id
+                       AND p.created_by IS DISTINCT FROM pm.user_id
+                       AND pm.role_in_project IS DISTINCT FROM $3
+                     RETURNING pm.user_id',
+                    [$targetProjectId, $memberUserId, $memberRole]
+                );
+                $memberUpdated = pg_fetch_assoc($updateMemberRes) !== false;
+                if ($memberUpdated) {
+                    $auditLogger->log(
+                        $targetProjectId,
+                        null,
+                        'UPDATE_PROJECT_MEMBER_ROLE',
+                        "Changed user ID {$memberUserId} project role to {$memberRole}.",
+                        (int)$currentUser['id'],
+                        $memberUserId
+                    );
+                }
+                if (pg_query($conn, 'COMMIT') === false) {
+                    throw new RuntimeException('PROJECT_MEMBER_ROLE_COMMIT_FAILED');
+                }
+            } catch (Throwable $exception) {
+                if (pg_transaction_status($conn) !== PGSQL_TRANSACTION_IDLE) {
+                    pg_query($conn, 'ROLLBACK');
+                }
+                throw $exception;
+            }
+            if ($memberUpdated) {
                 $successMessage = 'Đã cập nhật vai trò thành viên.';
             } else {
                 $memberExistsRes = queryParams(
@@ -3031,18 +3111,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         } elseif ($memberUserId < 1) {
             $errorMessage = 'User ID thành viên không hợp lệ.';
         } else {
-            $removeMemberRes = queryParams(
-                $conn,
-                'DELETE FROM project_members pm
-                 USING projects p
-                 WHERE pm.project_id = $1
-                   AND pm.user_id = $2
-                   AND p.id = pm.project_id
-                   AND p.created_by IS DISTINCT FROM pm.user_id
-                 RETURNING pm.user_id',
-                [$targetProjectId, $memberUserId]
-            );
-            if (pg_fetch_assoc($removeMemberRes)) {
+            if (pg_query($conn, 'BEGIN') === false) {
+                throw new RuntimeException('PROJECT_MEMBER_REMOVE_TRANSACTION_FAILED');
+            }
+            try {
+                $removeMemberRes = queryParams(
+                    $conn,
+                    'DELETE FROM project_members pm
+                     USING projects p
+                     WHERE pm.project_id = $1
+                       AND pm.user_id = $2
+                       AND p.id = pm.project_id
+                       AND p.created_by IS DISTINCT FROM pm.user_id
+                     RETURNING pm.user_id',
+                    [$targetProjectId, $memberUserId]
+                );
+                $memberRemoved = pg_fetch_assoc($removeMemberRes) !== false;
+                if ($memberRemoved) {
+                    $auditLogger->log(
+                        $targetProjectId,
+                        null,
+                        'REMOVE_PROJECT_MEMBER',
+                        "Removed user ID {$memberUserId} from the project.",
+                        (int)$currentUser['id'],
+                        $memberUserId
+                    );
+                }
+                if (pg_query($conn, 'COMMIT') === false) {
+                    throw new RuntimeException('PROJECT_MEMBER_REMOVE_COMMIT_FAILED');
+                }
+            } catch (Throwable $exception) {
+                if (pg_transaction_status($conn) !== PGSQL_TRANSACTION_IDLE) {
+                    pg_query($conn, 'ROLLBACK');
+                }
+                throw $exception;
+            }
+            if ($memberRemoved) {
                 $successMessage = 'Đã xóa thành viên khỏi dự án.';
             } else {
                 $errorMessage = 'Không tìm thấy thành viên hoặc không thể xóa chủ dự án.';
@@ -4079,8 +4183,9 @@ if ($currentProjectRole !== null) {
     <link rel="stylesheet" href="tms.css">
     <script src="tms-theme.js" defer></script>
     <script src="tms-sync-back.js" defer></script>
+    <script src="tms-project-sync.js" defer></script>
 </head>
-<body class="bg-gray-50 text-gray-800 font-sans">
+<body class="bg-gray-50 text-gray-800 font-sans" data-project-sync-revision="<?= htmlspecialchars($projectSyncRevision, ENT_QUOTES, 'UTF-8') ?>">
     <div class="<?= ($currentProjectRole === 'Reviewer' || $currentProjectRole === 'Translator') ? 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full space-y-6' : 'tms-shell ' . ($currentProjectRole === 'Team Lead' ? 'tms-team-lead-dashboard-shell max-w-7xl mx-auto' : 'max-w-7xl mx-auto') . ' px-4 sm:px-6 lg:px-8 py-8' ?>">
         <header class="tms-topbar flex flex-col md:flex-row justify-between items-center mb-8 bg-white p-6 rounded-xl shadow-sm border border-gray-100 gap-4">
             <div>
@@ -7078,48 +7183,6 @@ if ($currentProjectRole !== null) {
                     bar.style.width = `${percent}%`;
                     setOpenerState(percent);
                 };
-                const updateBatchProgress = (completedBatches, batchCount) => {
-                    const percent = totalRows > 0
-                        ? Math.round((translatedRows / totalRows) * 100)
-                        : 100;
-                    const params = {current: completedBatches, total: batchCount, percent};
-                    setLocalizedText(progressLabel, 'translation.progress', `Đã dịch ${translatedRows}/${totalRows} câu (${percent}%)`, {
-                        translated: translatedRows,
-                        total: totalRows,
-                        percent
-                    });
-                    setLocalizedText(status, 'translation.batch_progress', `Đã hoàn tất ${completedBatches}/${batchCount} gói · ${percent}%`, params);
-                    progress.setAttribute('aria-valuenow', String(percent));
-                    bar.style.width = `${percent}%`;
-                    setOpenerState(percent);
-                };
-                const updateBatchStarted = (batchIndex, batchCount) => {
-                    const percent = totalRows > 0
-                        ? Math.round((translatedRows / totalRows) * 100)
-                        : 100;
-                    setLocalizedText(status, 'translation.batch_started', `Đang xử lý gói ${batchIndex + 1}/${batchCount} · ${percent}%`, {
-                        current: batchIndex + 1,
-                        total: batchCount,
-                        percent
-                    });
-                };
-                const splitIntoBatches = (rows, maxSize = 20) => {
-                    if (rows.length === 0) return [];
-                    let batchCount = Math.ceil(rows.length / 15);
-                    if (Math.floor(rows.length / batchCount) < 10) {
-                        batchCount = Math.ceil(rows.length / maxSize);
-                    }
-                    const baseSize = Math.floor(rows.length / batchCount);
-                    const largerBatchCount = rows.length % batchCount;
-                    const batches = [];
-                    let offset = 0;
-                    for (let index = 0; index < batchCount; index++) {
-                        const size = baseSize + (index < largerBatchCount ? 1 : 0);
-                        batches.push(rows.slice(offset, offset + size));
-                        offset += size;
-                    }
-                    return batches;
-                };
                 const loadPendingRows = async (progressOnly = false) => {
                     const pendingEndpoint = new URL(window.location.href);
                     pendingEndpoint.searchParams.set('action', 'google_translate_pending');
@@ -7206,6 +7269,8 @@ if ($currentProjectRole !== null) {
                     let rateLimited = false;
                     const failedBatches = [];
                     const forcedPlaceholderWarnings = [];
+                    const languageFallbackWarnings = [];
+                    const translationRequestDelayMs = 1200;
                     let startedAt = performance.now();
                     const waitWithCountdown = async (seconds, messageKey) => {
                         for (let remaining = seconds; remaining > 0; remaining--) {
@@ -7237,8 +7302,7 @@ if ($currentProjectRole !== null) {
                             pendingRows.length ? 'translation.translating_pending' : 'translation.no_pending',
                             pendingRows.length ? `Đang dịch bằng ${providerSelect?.selectedOptions[0]?.text || 'nhà cung cấp đã chọn'}...` : 'Không còn câu nào cần dịch.'
                         );
-                        let completedBatchCount = 0;
-                        const processBatch = async (batch, batchIndex, batchCount, sequential = false) => {
+                        const processBatch = async (batch, rowIndex, rowCount) => {
                             const controller = new AbortController();
                             activeControllers.add(controller);
                             try {
@@ -7260,7 +7324,7 @@ if ($currentProjectRole !== null) {
                                 });
                                 const {result} = await readTranslationResponse(response);
                                 if (!response.ok || !result.success) {
-                                    const error = new Error(result.details || result.message || `Không thể xử lý gói ${batchIndex + 1}.`);
+                                    const error = new Error(result.details || result.message || `Không thể xử lý câu ${rowIndex + 1}.`);
                                     error.retryable = result.retryable === true;
                                     throw error;
                                 }
@@ -7292,70 +7356,56 @@ if ($currentProjectRole !== null) {
                                     if (item.retryable) rateLimited = true;
                                 });
                                 (Array.isArray(result.warnings) ? result.warnings : []).forEach((item) => {
-                                    forcedPlaceholderWarnings.push(`Câu ${item.stringId}: ${item.message}`);
+                                    const warning = `Câu ${item.stringId}: ${item.message}`;
+                                    if (item.code === 'MYMEMORY_LANGUAGE_FALLBACK') {
+                                        languageFallbackWarnings.push(warning);
+                                    } else {
+                                        forcedPlaceholderWarnings.push(warning);
+                                    }
                                 });
                                 if (result.retryable) rateLimited = true;
                             } catch (error) {
                                 if (isCancelled || error?.name === 'AbortError') throw error;
                                 rateLimited = rateLimited || error?.retryable === true;
                                 const detail = error instanceof Error ? error.message : 'Lỗi mạng không xác định.';
-                                failedBatches.push(sequential
-                                    ? `Câu ${batchIndex + 1}/${batchCount}: ${detail}`
-                                    : `Gói ${batchIndex + 1}/${batchCount}: ${detail}`);
-                                console.error('[TMS MyMemory] Gói dịch thất bại.', {
-                                    batch: batchIndex + 1,
-                                    totalBatches: batchCount,
+                                failedBatches.push(`Câu ${rowIndex + 1}/${rowCount}: ${detail}`);
+                                console.error('[TMS MyMemory] Dịch câu thất bại.', {
+                                    row: rowIndex + 1,
+                                    totalRows: rowCount,
                                     error
                                 });
                             } finally {
                                 activeControllers.delete(controller);
-                                if (!sequential) completedBatchCount++;
                                 completed += batch.length;
                                 activeCompleted = activeTranslatedIds.size;
-                                if (sequential) {
-                                    updateProgress();
-                                } else {
-                                    updateBatchProgress(completedBatchCount, batchCount);
-                                }
+                                updateProgress();
                                 formatEta(Math.max(totalRows - translatedRows, 0), performance.now() - startedAt);
                             }
                         };
-                        if (pendingRows.length <= 10) {
-                            completed = 0;
-                            for (const [rowIndex, row] of pendingRows.entries()) {
-                                if (isCancelled || rateLimited) break;
-                                setLocalizedText(
-                                    status,
-                                    'translation.translating_row',
-                                    `Đang dịch câu ${rowIndex + 1}/${pendingRows.length}`,
-                                    {current: rowIndex + 1, total: pendingRows.length}
-                                );
-                                await processBatch([row], rowIndex, pendingRows.length, true);
-                            }
-                        } else {
-                            const batches = splitIntoBatches(pendingRows);
-                            let nextBatchIndex = 0;
-                            const workerCount = Math.min(5, batches.length);
-                            const worker = async () => {
-                                while (!isCancelled && !rateLimited) {
-                                    const batchIndex = nextBatchIndex++;
-                                    if (batchIndex >= batches.length) return;
-                                    updateBatchStarted(batchIndex, batches.length);
-                                    await processBatch(batches[batchIndex], batchIndex, batches.length);
-                                    if (!isCancelled && !rateLimited && nextBatchIndex < batches.length) {
-                                        await new Promise((resolve) => setTimeout(resolve, 250));
-                                    }
-                                }
-                            };
-                            await Promise.allSettled(
-                                Array.from({length: workerCount}, () => worker())
+                        completed = 0;
+                        for (const [rowIndex, row] of pendingRows.entries()) {
+                            if (isCancelled || rateLimited) break;
+                            setLocalizedText(
+                                status,
+                                'translation.translating_row',
+                                `Đang dịch câu ${rowIndex + 1}/${pendingRows.length}`,
+                                {current: rowIndex + 1, total: pendingRows.length}
                             );
+                            await processBatch([row], rowIndex, pendingRows.length);
+                            if (rowIndex < pendingRows.length - 1 && !isCancelled && !rateLimited) {
+                                await new Promise((resolve) => setTimeout(resolve, translationRequestDelayMs));
+                            };
                         }
                         if (isCancelled) throw new DOMException('Translation cancelled', 'AbortError');
                         const remaining = Math.max(totalRows - translatedRows, 0);
                         if (failedBatches.length > 0) {
                             const displayedErrors = failedBatches.slice(0, 3).join(' | ');
                             const omittedErrors = failedBatches.length > 3 ? ` (+${failedBatches.length - 3} lỗi khác)` : '';
+                            const displayedWarnings = [
+                                ...forcedPlaceholderWarnings,
+                                ...languageFallbackWarnings
+                            ].slice(0, 3).join(' | ');
+                            const warningDetails = displayedWarnings ? ` · Cảnh báo: ${displayedWarnings}` : '';
                             setLocalizedText(
                                 status,
                                 forcedPlaceholderWarnings.length > 0
@@ -7366,8 +7416,8 @@ if ($currentProjectRole !== null) {
                                     : `Hoàn tất các gói có thể xử lý; có ${failedBatches.length} lỗi.`,
                                 {count: failedBatches.length, forced: forcedPlaceholderWarnings.length}
                             );
-                            setLocalizedText(eta, 'translation.batch_failure_details', `Chi tiết lỗi: ${displayedErrors}${omittedErrors}`, {
-                                details: `${displayedErrors}${omittedErrors}`
+                            setLocalizedText(eta, 'translation.batch_failure_details', `Chi tiết lỗi: ${displayedErrors}${omittedErrors}${warningDetails}`, {
+                                details: `${displayedErrors}${omittedErrors}${warningDetails}`
                             });
                         } else {
                             setLocalizedText(status, 'translation.done', 'Đã hoàn tất.');
@@ -7377,6 +7427,13 @@ if ($currentProjectRole !== null) {
                                     'translation.force_placeholder_saved',
                                     'Đã buộc lưu {count} câu dù có cảnh báo về biến.',
                                     {count: forcedPlaceholderWarnings.length}
+                                );
+                            } else if (languageFallbackWarnings.length > 0) {
+                                setLocalizedText(
+                                    eta,
+                                    'translation.language_fallback_details',
+                                    'Một số câu được dịch dự phòng sang tiếng Anh: {details}',
+                                    {details: languageFallbackWarnings.slice(0, 3).join(' | ')}
                                 );
                             } else {
                                 setLocalizedText(eta, 'translation.done', 'Đã hoàn tất.');

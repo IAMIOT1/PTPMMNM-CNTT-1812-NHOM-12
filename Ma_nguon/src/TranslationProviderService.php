@@ -21,6 +21,30 @@ final class TranslationProviderService
         };
     }
 
+    public function translateWithMetadata(
+        string $provider,
+        string $text,
+        string $sourceLocale,
+        string $targetLocale
+    ): array {
+        if ($provider === self::MYMEMORY) {
+            return [
+                'provider' => self::MYMEMORY,
+                ...$this->myMemory->translateWithMetadata($text, $sourceLocale, $targetLocale),
+            ];
+        }
+
+        return [
+            'provider' => $provider,
+            'translated_text' => $this->translate($provider, $text, $sourceLocale, $targetLocale),
+            'fallback' => false,
+            'source_locale' => $sourceLocale,
+            'target_locale' => $targetLocale,
+            'requested_target_locale' => $targetLocale,
+            'fallback_reason' => null,
+        ];
+    }
+
     private function translateGoogle(string $text, string $sourceLocale, string $targetLocale): string
     {
         $decoded = $this->requestJson(

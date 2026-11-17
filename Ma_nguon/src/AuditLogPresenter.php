@@ -7,6 +7,28 @@ final class AuditLogPresenter {
         $username = $userMatch[1] ?? '';
 
         return match ($actionType) {
+            'CREATE_PROJECT' => self::withMatch(
+                'audit.project_created',
+                [],
+                '/project \[(.*?)\]/',
+                $details,
+                'project'
+            ),
+            'DELETE_PROJECT' => self::withMatch(
+                'audit.project_deleted',
+                [],
+                '/project \[(.*?)\]/',
+                $details,
+                'project'
+            ),
+            'SET_PROJECT_MEMBER_ROLE', 'UPDATE_PROJECT_MEMBER_ROLE' => self::describeProjectRoleChange($details),
+            'REMOVE_PROJECT_MEMBER' => self::withMatch(
+                'audit.project_member_removed',
+                [],
+                '/user ID (\d+)/',
+                $details,
+                'user_id'
+            ),
             'IMPORT_SOURCE' => self::withMatch(
                 'audit.source_imported',
                 ['username' => $username],
@@ -52,6 +74,17 @@ final class AuditLogPresenter {
         preg_match($pattern, $details, $match);
         $params[$parameter] = $match[1] ?? '';
         return ['key' => $key, 'params' => $params];
+    }
+
+    private static function describeProjectRoleChange(string $details): array {
+        preg_match('/user ID (\d+) project role to (.+)\.$/', $details, $match);
+        return [
+            'key' => 'audit.project_member_role_set',
+            'params' => [
+                'user_id' => $match[1] ?? '',
+                'role' => $match[2] ?? '',
+            ],
+        ];
     }
 
     private static function describeAiTranslation(string $details, string $username): array {

@@ -12,9 +12,12 @@ $currentUser = $auth->getCurrentUser();
 if (($_SESSION['role'] ?? '') !== 'admin' ||
     $currentUser === null ||
     !ProjectAccess::isSystemAdmin($currentUser)) {
-    header('Location: index.php', true, 303);
+    header('Location: /index.php', true, 303);
     exit;
 }
+
+header('Location: /dashboard-ui/', true, 303);
+exit;
 
 $systemRoles = ['admin', 'user'];
 $successMessage = '';
@@ -333,12 +336,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             if (!$ticket) {
                 throw new InvalidArgumentException('Không tìm thấy yêu cầu hỗ trợ.');
             }
-            if ($ticket['status'] !== 'pending') {
+            if (!in_array($ticket['status'], ['pending', 'in_progress'], true)) {
                 throw new InvalidArgumentException('Yêu cầu này đã được xử lý trước đó.');
             }
             queryParams(
                 $connection,
-                "UPDATE support_tickets SET status = 'resolved' WHERE id = $1",
+                "UPDATE support_tickets SET status = 'resolved'
+                 WHERE id = $1 AND status IN ('pending', 'in_progress')",
                 [(int)$ticketId]
             );
             $writeAdminAudit(
@@ -419,17 +423,17 @@ foreach ($users as $user) {
 }
 $pendingTicketsCountResult = queryParams(
     $connection,
-    "SELECT COUNT(*) FROM support_tickets WHERE status = 'pending'",
+    "SELECT COUNT(*) FROM support_tickets WHERE status IN ('pending', 'in_progress')",
     []
 );
 $pendingTicketsCount = (int)pg_fetch_result($pendingTicketsCountResult, 0, 0);
 $pendingTicketsResult = queryParams(
     $connection,
-    "SELECT t.id, t.user_id, t.title, t.message, t.image_path, t.created_at, u.username, u.email
+    "SELECT t.id, t.user_id, t.title, t.message, t.image_path, t.status, t.created_at, u.username, u.email
      FROM support_tickets t
      JOIN users u ON u.id = t.user_id
-     WHERE t.status = 'pending'
-     ORDER BY t.created_at ASC, t.id ASC
+     WHERE t.status IN ('pending', 'in_progress')
+     ORDER BY t.created_at DESC, t.id DESC
      LIMIT 200",
     []
 );
@@ -753,10 +757,10 @@ $csrfToken = Csrf::token();
         <section aria-labelledby="pending-support-heading">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                    <h3 id="pending-support-heading" class="text-base font-bold text-gray-900">Đang chờ xử lý</h3>
-                    <p class="mt-0.5 text-sm text-gray-500">Các báo cáo mới cần quản trị viên xem xét.</p>
+                    <h3 id="pending-support-heading" data-i18n="support.ticket.queue.unresolved_heading" class="text-base font-bold text-gray-900">Yêu cầu chưa giải quyết</h3>
+                    <p data-i18n="support.ticket.queue.unresolved_description" class="mt-0.5 text-sm text-gray-500">Các yêu cầu đang chờ hoặc đang được quản trị viên xử lý.</p>
                 </div>
-                <span class="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-900"><?= $pendingTicketsCount ?> đang chờ</span>
+                <span class="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-900"><?= $pendingTicketsCount ?> <span data-i18n="support.ticket.queue.unresolved_count">chưa giải quyết</span></span>
             </div>
         <?php if ($pendingTickets): ?>
             <div class="max-h-[350px] space-y-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
@@ -771,7 +775,11 @@ $csrfToken = Csrf::token();
                                     · <?= htmlspecialchars(date('d/m/Y H:i', strtotime((string)$ticket['created_at'])), ENT_QUOTES, 'UTF-8') ?>
                                 </p>
                             </div>
-                            <span class="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">Đang chờ</span>
+                            <?php if ($ticket['status'] === 'in_progress'): ?>
+                                <span data-i18n="support.ticket.status.in_progress" class="shrink-0 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-900">Đang xử lý</span>
+                            <?php else: ?>
+                                <span data-i18n="support.ticket.status.pending" class="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">Chờ xử lý</span>
+                            <?php endif; ?>
                         </div>
                         <p class="mt-2 whitespace-pre-wrap break-words text-sm leading-5 text-gray-700"><?= htmlspecialchars($ticket['message'], ENT_QUOTES, 'UTF-8') ?></p>
                         <?php if (is_string($ticket['image_path'] ?? null) && $ticket['image_path'] !== ''): ?>
@@ -789,10 +797,10 @@ $csrfToken = Csrf::token();
                 <?php endforeach; ?>
             </div>
             <?php if ($pendingTicketsCount > count($pendingTickets)): ?>
-                <p class="mt-3 text-xs text-gray-500">Đang hiển thị tối đa 200 yêu cầu; tổng số yêu cầu đang chờ: <?= $pendingTicketsCount ?>.</p>
+                <p class="mt-3 text-xs text-gray-500">Đang hiển thị tối đa 200 yêu cầu chưa giải quyết; tổng số: <?= $pendingTicketsCount ?>.</p>
             <?php endif; ?>
         <?php else: ?>
-            <p class="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800">Không có yêu cầu nào đang chờ xử lý.</p>
+            <p class="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800">Không có yêu cầu nào cần xử lý.</p>
         <?php endif; ?>
         </section>
 

@@ -7,6 +7,7 @@ require __DIR__ . '/../src/Database.php';
 require __DIR__ . '/../src/AuthManager.php';
 require __DIR__ . '/../src/ProjectAccess.php';
 require __DIR__ . '/../src/AuditLogger.php';
+require __DIR__ . '/../src/DashboardApiService.php';
 
 try {
     $connection = db();
@@ -82,6 +83,28 @@ try {
     $supportTicket = pg_fetch_assoc($supportTicketResult);
     same($supportTicket['status'], 'pending', 'support-ticket-starts-pending');
     same($supportTicket['image_path'], 'uploads/support/test-image.png', 'support-ticket-stores-attachment-path');
+    $adminDashboard = new DashboardApiService($connection, ['id' => (int)$admin['id'], 'role' => 'admin']);
+    $listedSupportRequests = $adminDashboard->supportRequests();
+    $listedTicket = array_values(array_filter(
+        $listedSupportRequests,
+        static fn(array $request): bool => $request['id'] === (string)$supportTicket['id']
+    ))[0] ?? null;
+    same(is_array($listedTicket), true, 'admin-support-api-lists-ticket');
+    same($listedTicket['title'] ?? null, 'Test support request', 'admin-support-api-includes-title');
+    same($listedTicket['message'] ?? null, 'This is a test support message.', 'admin-support-api-includes-content');
+    same($listedTicket['senderEmail'] ?? null, $userName . '@example.test', 'admin-support-api-includes-sender');
+    same($listedTicket['imagePath'] ?? null, 'uploads/support/test-image.png', 'admin-support-api-includes-attachment');
+    $userDashboard = new DashboardApiService(
+        $connection,
+        ['id' => (int)pg_fetch_result($userResult, 0, 'id'), 'role' => 'user']
+    );
+    $nonAdminSupportApiDenied = false;
+    try {
+        $userDashboard->supportRequests();
+    } catch (DashboardApiHttpException $exception) {
+        $nonAdminSupportApiDenied = $exception->statusCode === 403;
+    }
+    same($nonAdminSupportApiDenied, true, 'non-admin-cannot-list-support-requests');
     $userTicketHistory = queryParams(
         $connection,
         'SELECT id FROM support_tickets WHERE user_id = $1 AND id = $2',
@@ -90,7 +113,17 @@ try {
     same(pg_num_rows($userTicketHistory), 1, 'user-can-query-own-ticket-history');
     queryParams(
         $connection,
-        "UPDATE support_tickets SET status = 'resolved' WHERE id = $1 AND status = 'pending'",
+        "UPDATE support_tickets SET status = 'in_progress' WHERE id = $1 AND status = 'pending'",
+        [(int)$supportTicket['id']]
+    );
+    same(
+        pg_fetch_result(queryParams($connection, 'SELECT status FROM support_tickets WHERE id = $1', [(int)$supportTicket['id']]), 0, 0),
+        'in_progress',
+        'support-ticket-can-mark-in-progress'
+    );
+    queryParams(
+        $connection,
+        "UPDATE support_tickets SET status = 'resolved' WHERE id = $1 AND status = 'in_progress'",
         [(int)$supportTicket['id']]
     );
     same(
@@ -104,6 +137,7 @@ try {
     same(str_contains($profilePage, 'enctype="multipart/form-data"'), true, 'support-form-submits-multipart-data');
     same(str_contains($profilePage, 'name="support_image"'), true, 'support-form-accepts-image-attachment');
     same(str_contains($profilePage, '$ticket[\'image_path\']'), true, 'profile-ticket-history-shows-image-thumbnail');
+    same(str_contains($profilePage, 'support.ticket.status.in_progress'), true, 'profile-ticket-history-shows-in-progress-status');
     same(str_contains(file_get_contents(__DIR__ . '/../resources/views/quan_ly_nguoi_dung.php'), '$ticket[\'image_path\']'), true, 'admin-ticket-queue-shows-image-thumbnail');
     same(str_contains($profilePage, "header('Location: ho_so_ca_nhan.php?status=support_submitted#support-requests', true, 303);"), true, 'support-submission-uses-post-redirect-get');
     same(str_contains($profilePage, "if (\$_SERVER['REQUEST_METHOD'] === 'POST')"), true, 'profile-form-actions-require-post-request');
@@ -125,7 +159,7 @@ try {
     same($invalidRoleRejected, true, 'unknown-system-role-is-rejected');
     $adminPage = file_get_contents(__DIR__ . '/../resources/views/quan_ly_nguoi_dung.php');
     same(str_contains($adminPage, "\$_SESSION['role'] ?? '') !== 'admin'"), true, 'admin-page-checks-session-role');
-    same(str_contains($adminPage, "header('Location: index.php', true, 303);"), true, 'non-admin-redirects-to-home');
+    same(str_contains($adminPage, "header('Location: /index.php', true, 303);"), true, 'non-admin-redirects-to-home');
     same(str_contains($adminPage, '!ProjectAccess::isSystemAdmin($currentUser)'), true, 'admin-page-rechecks-database-role');
     same(str_contains($adminPage, "\$systemRoles = ['admin', 'user'];"), true, 'admin-page-limits-global-roles');
     same(str_contains($adminPage, 'Tổng số tài khoản'), true, 'admin-page-shows-account-total');
@@ -156,9 +190,10 @@ try {
     same(str_contains($adminPage, 'audit_page'), true, 'audit-log-supports-pagination');
     same(str_contains($adminPage, "a.ip_address"), true, 'audit-log-displays-client-ip');
     same(str_contains($adminPage, 'name="action" value="resolve_support_ticket"'), true, 'admin-can-resolve-support-ticket');
+    same(str_contains($adminPage, 'support.ticket.status.in_progress'), true, 'legacy-admin-queue-shows-in-progress-status');
     same(str_contains($adminPage, '$pendingTicketsCount > 0'), true, 'admin-header-shows-pending-ticket-badge');
     same(str_contains($adminPage, 'Yêu cầu hỗ trợ từ User'), true, 'admin-page-lists-support-tickets');
-    same(str_contains($adminPage, 'Đang chờ xử lý'), true, 'admin-support-page-has-pending-section');
+    same(str_contains($adminPage, 'Yêu cầu chưa giải quyết'), true, 'admin-support-page-has-pending-section');
     same(str_contains($adminPage, 'Lịch sử hỗ trợ'), true, 'admin-support-page-has-resolved-history');
     same(str_contains($adminPage, "WHERE t.status = 'resolved'"), true, 'admin-support-page-queries-resolved-tickets');
     same(str_contains($adminPage, 'max-h-[350px] space-y-3 overflow-y-auto'), true, 'admin-resolved-ticket-list-is-scrollable');
@@ -197,10 +232,12 @@ try {
     same($auth->login($lockedName, $password), false, 'locked-user-stays-unable-to-login');
     same($lockedId > 0, true, 'locked-user-is-persisted-for-test');
     $loginPage = file_get_contents(__DIR__ . '/../resources/views/dang_nhap.php');
-    same(str_contains($loginPage, "'quan_ly_nguoi_dung.php'"), true, 'login-routes-admin-to-user-management');
-    same(str_contains($loginPage, ": 'index.php'"), true, 'login-routes-regular-user-to-workspace');
+    same(str_contains($loginPage, "'/dashboard-ui/'"), true, 'login-routes-admin-to-react-dashboard');
+    same(str_contains($loginPage, ": '/index.php'"), true, 'login-routes-regular-user-to-workspace');
     $workspacePage = file_get_contents(__DIR__ . '/../index.php');
-    same(str_contains($workspacePage, "header('Location: quan_ly_nguoi_dung.php', true, 303);"), true, 'admin-workspace-request-redirects-to-admin');
+    same(str_contains($workspacePage, "header('Location: /dashboard-ui/', true, 303);"), true, 'admin-workspace-request-redirects-to-react-dashboard');
+    $legacyAdminPage = file_get_contents(__DIR__ . '/../resources/views/quan_ly_nguoi_dung.php');
+    same(str_contains($legacyAdminPage, "header('Location: /dashboard-ui/', true, 303);"), true, 'legacy-admin-route-redirects-to-react-dashboard');
 
     $projectResult = queryParams(
         $connection,

@@ -1,0 +1,6 @@
+RewriteEngine On
+
+RewriteRule ^dashboard-ui/?$ dashboard-ui/dist/index.html [END]
+RewriteCond %{DOCUMENT_ROOT}/dashboard-ui/dist/$1 -f
+RewriteRule ^dashboard-ui/(.+)$ dashboard-ui/dist/$1 [END]
+RewriteRule ^dashboard-ui(?:/.*)?$ dashboard-ui/dist/index.html [END]

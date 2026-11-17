@@ -17,10 +17,19 @@ try {
             user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             title VARCHAR(200) NOT NULL CHECK (length(btrim(title)) BETWEEN 3 AND 200),
             message TEXT NOT NULL CHECK (length(btrim(message)) BETWEEN 10 AND 10000),
-            status VARCHAR(10) NOT NULL DEFAULT 'pending'
-                CHECK (status IN ('pending', 'resolved')),
+            status VARCHAR(16) NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'in_progress', 'resolved')),
             created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
         )",
+        []
+    );
+    queryParams($connection, 'ALTER TABLE support_tickets ALTER COLUMN status TYPE VARCHAR(16)', []);
+    queryParams($connection, 'ALTER TABLE support_tickets DROP CONSTRAINT IF EXISTS support_tickets_status_check', []);
+    queryParams(
+        $connection,
+        "ALTER TABLE support_tickets
+         ADD CONSTRAINT support_tickets_status_check
+         CHECK (status IN ('pending', 'in_progress', 'resolved'))",
         []
     );
     queryParams(

@@ -13,7 +13,8 @@ class AuditLogger {
         ?int $stringId,
         string $actionType,
         string $details,
-        ?int $actorUserId = null
+        ?int $actorUserId = null,
+        ?int $targetUserId = null
     ): void {
         $actorUserId ??= isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
         $remoteAddress = $_SERVER['REMOTE_ADDR'] ?? null;
@@ -21,12 +22,12 @@ class AuditLogger {
             ? $remoteAddress
             : null;
         $sql = "INSERT INTO audit_logs
-                (project_id, string_id, actor_user_id, action_type, details, ip_address)
-                VALUES ($1, $2, COALESCE($3, NULLIF(current_setting('tms.user_id', TRUE), '')::INT), $4, $5, $6)";
+                (project_id, string_id, actor_user_id, target_user_id, action_type, details, ip_address)
+                VALUES ($1, $2, COALESCE($3, NULLIF(current_setting('tms.user_id', TRUE), '')::INT), $4, $5, $6, $7)";
         queryParams(
             $this->conn,
             $sql,
-            [$projectId, $stringId, $actorUserId, $actionType, $details, $ipAddress]
+            [$projectId, $stringId, $actorUserId, $targetUserId, $actionType, $details, $ipAddress]
         );
     }
 

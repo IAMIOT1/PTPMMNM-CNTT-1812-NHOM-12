@@ -6,20 +6,48 @@ final class MyMemoryTranslationService
     private const REQUEST_DELAY_US = 1000000;
     private const MAX_RATE_LIMIT_RETRIES = 3;
     private const MAX_TRANSIENT_RETRIES = 2;
+    private const LANGUAGE_CODE_ALIASES = [
+        'in' => 'id',
+        'iw' => 'he',
+        'ji' => 'yi',
+        'jw' => 'jv',
+        'mo' => 'ro',
+    ];
     private static float $lastRequestAt = 0.0;
+
+    public static function normalizeLanguageCode(string $locale, bool $allowAuto = false): string
+    {
+        $locale = strtolower(str_replace('_', '-', trim($locale)));
+        if ($locale === '' || $locale === 'all' || $locale === 'auto') {
+            if ($allowAuto) {
+                return 'auto';
+            }
+            throw new InvalidArgumentException('MYMEMORY_LOCALE_INVALID');
+        }
+        if (preg_match('/^([a-z]{2,3})(?:-[a-z0-9]{2,8})*$/D', $locale, $matches) !== 1) {
+            throw new InvalidArgumentException('MYMEMORY_LOCALE_INVALID');
+        }
+
+        $languageCode = $matches[1];
+        return self::LANGUAGE_CODE_ALIASES[$languageCode] ?? $languageCode;
+    }
 
     public function translate(string $sourceText, string $sourceLocale, string $targetLocale): string
     {
+        return $this->translateWithMetadata($sourceText, $sourceLocale, $targetLocale)['translated_text'];
+    }
+
+    /**
+     * @return array{translated_text:string,fallback:bool,source_locale:string,target_locale:string,requested_target_locale:string,fallback_reason:?string}
+     */
+    public function translateWithMetadata(string $sourceText, string $sourceLocale, string $targetLocale): array
+    {
         $sourceText = trim($sourceText);
-        $sourceLocale = strtolower(trim($sourceLocale));
-        $targetLocale = strtolower(trim($targetLocale));
+        $sourceLocale = self::normalizeLanguageCode($sourceLocale, true);
+        $targetLocale = self::normalizeLanguageCode($targetLocale);
 
         if ($sourceText === '' || strlen($sourceText) > 50000) {
             throw new InvalidArgumentException('MYMEMORY_TEXT_INVALID');
-        }
-        if (!preg_match('/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/i', $sourceLocale) ||
-            !preg_match('/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/i', $targetLocale)) {
-            throw new InvalidArgumentException('MYMEMORY_LOCALE_INVALID');
         }
         if (!function_exists('curl_init')) {
             throw new RuntimeException('MYMEMORY_CURL_MISSING');
@@ -29,6 +57,74 @@ final class MyMemoryTranslationService
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new InvalidArgumentException('MYMEMORY_EMAIL_INVALID');
         }
+        $decoded = $this->requestTranslation($sourceText, $sourceLocale, $targetLocale, $email);
+        $translatedText = trim((string)($decoded['responseData']['translatedText'] ?? ''));
+        $responseStatus = (int)($decoded['responseStatus'] ?? 0);
+        if ($responseStatus === 200 && $translatedText !== '') {
+            return [
+                'translated_text' => $translatedText,
+                'fallback' => false,
+                'source_locale' => $sourceLocale,
+                'target_locale' => $targetLocale,
+                'requested_target_locale' => $targetLocale,
+                'fallback_reason' => null,
+            ];
+        }
+
+        $details = trim((string)($decoded['responseDetails'] ?? ''));
+        $targetUnsupported = preg_match('/INVALID TARGET LANGUAGE/i', $details) === 1
+            || ($responseStatus === 200 && $translatedText === '');
+        if ($targetUnsupported && $targetLocale !== 'en') {
+            $fallbackReason = preg_match('/INVALID TARGET LANGUAGE/i', $details) === 1
+                ? 'MyMemory does not support the selected target language.'
+                : ($details !== '' ? $this->sanitize($details) : 'No translation was available for the selected language.');
+            if ($sourceLocale === 'en') {
+                return [
+                    'translated_text' => $sourceText,
+                    'fallback' => true,
+                    'source_locale' => 'en',
+                    'target_locale' => 'en',
+                    'requested_target_locale' => $targetLocale,
+                    'fallback_reason' => $fallbackReason,
+                ];
+            }
+            $fallbackResponse = $this->requestTranslation($sourceText, $sourceLocale, 'en', $email);
+            $fallbackText = trim((string)($fallbackResponse['responseData']['translatedText'] ?? ''));
+            if ((int)($fallbackResponse['responseStatus'] ?? 0) === 200 && $fallbackText !== '') {
+                return [
+                    'translated_text' => $fallbackText,
+                    'fallback' => true,
+                    'source_locale' => $sourceLocale,
+                    'target_locale' => 'en',
+                    'requested_target_locale' => $targetLocale,
+                    'fallback_reason' => $fallbackReason,
+                ];
+            }
+
+            $fallbackDetails = trim((string)($fallbackResponse['responseDetails'] ?? ''));
+            if ($fallbackDetails === '') {
+                $fallbackDetails = 'empty translation response';
+            }
+            throw new RuntimeException(
+                'MYMEMORY_UNSUPPORTED_TARGET_LANGUAGE: ' . $targetLocale .
+                '; English fallback failed: ' . $this->sanitize($fallbackDetails),
+                422
+            );
+        }
+
+        $message = $details !== '' ? $details : 'empty translation response';
+        throw new RuntimeException(
+            'MYMEMORY_API_ERROR: ' . $this->sanitize($message),
+            $responseStatus > 0 ? $responseStatus : 502
+        );
+    }
+
+    private function requestTranslation(
+        string $sourceText,
+        string $sourceLocale,
+        string $targetLocale,
+        string $email
+    ): array {
         $url = 'https://api.mymemory.translated.net/get?' . http_build_query([
             'q' => $sourceText,
             'langpair' => $sourceLocale . '|' . $targetLocale,
@@ -106,17 +202,10 @@ final class MyMemoryTranslationService
             }
             break;
         }
-        $decoded = $responseDecoded ?? [];
-        $responseStatus = (int)($decoded['responseStatus'] ?? 0);
-        $translatedText = trim((string)($decoded['responseData']['translatedText'] ?? ''));
-        if ($responseStatus !== 200 || $translatedText === '') {
-            $message = (string)($decoded['responseDetails'] ?? 'empty translation response');
-            throw new RuntimeException(
-                'MYMEMORY_API_ERROR: ' . $this->sanitize($message),
-                $responseStatus > 0 ? $responseStatus : 502
-            );
+        if (!is_array($responseDecoded)) {
+            throw new RuntimeException('MYMEMORY_INVALID_RESPONSE');
         }
-        return $translatedText;
+        return $responseDecoded;
     }
 
     private function waitForRequestSlot(): void
