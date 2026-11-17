@@ -62,9 +62,19 @@ cat > /etc/apache2/sites-available/000-default.conf <<'APACHE_SITE'
     DocumentRoot /var/www/html
     DirectoryIndex index.php index.html
 
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} ^/icons/
+    RewriteRule ^ - [END]
+
     <Directory /var/www/html>
         Options FollowSymLinks
         AllowOverride All
+        Require all granted
+    </Directory>
+
+    <Directory /var/www/html/icons>
+        Options FollowSymLinks
+        AllowOverride None
         Require all granted
     </Directory>
 

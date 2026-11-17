@@ -57,6 +57,14 @@ $workerSkipsDynamicEndpoints = str_contains($worker, "url.pathname.endsWith('.ph
     && str_contains($worker, 'STATIC_DESTINATIONS.has(request.destination)');
 same($workerSkipsDynamicEndpoints, true, 'root-worker-caches-static-assets-only');
 
+$dockerfile = file_get_contents(__DIR__ . '/../Dockerfile');
+$apacheServesIconsDirectly = str_contains($dockerfile, 'DocumentRoot /var/www/html')
+    && str_contains($dockerfile, 'RewriteCond %{REQUEST_URI} ^/icons/')
+    && str_contains($dockerfile, 'RewriteRule ^ - [END]')
+    && str_contains($dockerfile, '<Directory /var/www/html/icons>')
+    && str_contains($dockerfile, 'Require all granted');
+same($apacheServesIconsDirectly, true, 'apache-serves-pwa-icons-directly');
+
 $dashboardReferencesRootManifest = str_contains(
     file_get_contents(__DIR__ . '/../dashboard-ui/index.html'),
     'href="/manifest.json"'
