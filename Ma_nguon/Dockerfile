@@ -63,8 +63,7 @@ cat > /etc/apache2/sites-available/000-default.conf <<'APACHE_SITE'
     DirectoryIndex index.php index.html
 
     RewriteEngine On
-    RewriteCond %{REQUEST_URI} ^/icons/
-    RewriteRule ^ - [END]
+    RewriteRule ^(icons/|manifest\.json|sw\.js) - [L]
 
     <Directory /var/www/html>
         Options FollowSymLinks

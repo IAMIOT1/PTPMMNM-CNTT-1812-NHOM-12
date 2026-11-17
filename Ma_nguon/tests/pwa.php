@@ -58,9 +58,22 @@ $workerSkipsDynamicEndpoints = str_contains($worker, "url.pathname.endsWith('.ph
 same($workerSkipsDynamicEndpoints, true, 'root-worker-caches-static-assets-only');
 
 $dockerfile = file_get_contents(__DIR__ . '/../Dockerfile');
+$staticBypassRule = 'RewriteRule ^(icons/|manifest\.json|sw\.js) - [L]';
+$firstRewriteRulePosition = strpos($dockerfile, 'RewriteRule');
+$staticBypassPosition = strpos($dockerfile, $staticBypassRule);
+$dashboardFallbackPosition = strpos($dockerfile, 'RewriteRule ^ index.html [L]');
+$existingFileConditionPosition = strpos($dockerfile, 'RewriteCond %{REQUEST_FILENAME} !-f');
+$existingDirectoryConditionPosition = strpos($dockerfile, 'RewriteCond %{REQUEST_FILENAME} !-d');
 $apacheServesIconsDirectly = str_contains($dockerfile, 'DocumentRoot /var/www/html')
-    && str_contains($dockerfile, 'RewriteCond %{REQUEST_URI} ^/icons/')
-    && str_contains($dockerfile, 'RewriteRule ^ - [END]')
+    && $firstRewriteRulePosition !== false
+    && $firstRewriteRulePosition === $staticBypassPosition
+    && $staticBypassPosition !== false
+    && $dashboardFallbackPosition !== false
+    && $staticBypassPosition < $dashboardFallbackPosition
+    && $existingFileConditionPosition !== false
+    && $existingDirectoryConditionPosition !== false
+    && $existingFileConditionPosition < $dashboardFallbackPosition
+    && $existingDirectoryConditionPosition < $dashboardFallbackPosition
     && str_contains($dockerfile, '<Directory /var/www/html/icons>')
     && str_contains($dockerfile, 'Require all granted');
 same($apacheServesIconsDirectly, true, 'apache-serves-pwa-icons-directly');
