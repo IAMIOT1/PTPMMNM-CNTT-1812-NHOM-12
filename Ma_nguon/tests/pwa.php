@@ -66,6 +66,7 @@ $dashboardFallbackPosition = strpos($dockerfile, 'RewriteRule ^ index.html [L]')
 $existingFileConditionPosition = strpos($dockerfile, 'RewriteCond %{REQUEST_FILENAME} !-f');
 $existingDirectoryConditionPosition = strpos($dockerfile, 'RewriteCond %{REQUEST_FILENAME} !-d');
 $apacheServesIconsDirectly = str_contains($dockerfile, 'DocumentRoot /var/www/html')
+    && str_contains($dockerfile, 'COPY --chown=root:www-data icons/ /var/www/html/icons/')
     && $rewriteEnginePosition !== false
     && $staticBypassPosition === $rewriteEnginePosition + strlen("RewriteEngine On\n    ")
     && $firstRewriteRulePosition !== false
@@ -77,6 +78,8 @@ $apacheServesIconsDirectly = str_contains($dockerfile, 'DocumentRoot /var/www/ht
     && $existingDirectoryConditionPosition !== false
     && $existingFileConditionPosition < $dashboardFallbackPosition
     && $existingDirectoryConditionPosition < $dashboardFallbackPosition
+    && str_contains($dockerfile, '<Directory /var/www/html>')
+    && str_contains($dockerfile, 'AllowOverride All')
     && str_contains($dockerfile, '<Directory /var/www/html/icons>')
     && str_contains($dockerfile, 'FallbackResource disabled')
     && str_contains($dockerfile, 'Require all granted');
