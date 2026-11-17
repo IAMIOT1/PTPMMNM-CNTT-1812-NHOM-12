@@ -58,13 +58,16 @@ $workerSkipsDynamicEndpoints = str_contains($worker, "url.pathname.endsWith('.ph
 same($workerSkipsDynamicEndpoints, true, 'root-worker-caches-static-assets-only');
 
 $dockerfile = file_get_contents(__DIR__ . '/../Dockerfile');
-$staticBypassRule = 'RewriteRule ^(icons/|manifest\.json|sw\.js) - [L]';
+$staticBypassRule = 'RewriteRule ^/?(icons/|manifest\.json|sw\.js) - [L]';
+$rewriteEnginePosition = strpos($dockerfile, "RewriteEngine On\n");
 $firstRewriteRulePosition = strpos($dockerfile, 'RewriteRule');
 $staticBypassPosition = strpos($dockerfile, $staticBypassRule);
 $dashboardFallbackPosition = strpos($dockerfile, 'RewriteRule ^ index.html [L]');
 $existingFileConditionPosition = strpos($dockerfile, 'RewriteCond %{REQUEST_FILENAME} !-f');
 $existingDirectoryConditionPosition = strpos($dockerfile, 'RewriteCond %{REQUEST_FILENAME} !-d');
 $apacheServesIconsDirectly = str_contains($dockerfile, 'DocumentRoot /var/www/html')
+    && $rewriteEnginePosition !== false
+    && $staticBypassPosition === $rewriteEnginePosition + strlen("RewriteEngine On\n    ")
     && $firstRewriteRulePosition !== false
     && $firstRewriteRulePosition === $staticBypassPosition
     && $staticBypassPosition !== false
