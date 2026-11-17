@@ -58,7 +58,7 @@ $workerSkipsDynamicEndpoints = str_contains($worker, "url.pathname.endsWith('.ph
 same($workerSkipsDynamicEndpoints, true, 'root-worker-caches-static-assets-only');
 
 $dockerfile = file_get_contents(__DIR__ . '/../Dockerfile');
-$staticBypassRule = 'RewriteRule ^/?(icons/|manifest\.json|sw\.js) - [L]';
+$staticBypassRule = 'RewriteRule ^/?(icons/|manifest\.json|sw\.js|debug_apache\.php) - [L]';
 $rewriteEnginePosition = strpos($dockerfile, "RewriteEngine On\n");
 $firstRewriteRulePosition = strpos($dockerfile, 'RewriteRule');
 $staticBypassPosition = strpos($dockerfile, $staticBypassRule);
@@ -84,6 +84,29 @@ $apacheServesIconsDirectly = str_contains($dockerfile, 'DocumentRoot /var/www/ht
     && str_contains($dockerfile, 'FallbackResource disabled')
     && str_contains($dockerfile, 'Require all granted');
 same($apacheServesIconsDirectly, true, 'apache-serves-pwa-icons-directly');
+
+$debugEndpoint = file_get_contents(__DIR__ . '/../debug_apache.php');
+$debugEndpointIncludesPaths = array_reduce(
+    [
+        'document_root',
+        'script_filename',
+        '__dir__',
+        'icon_path_1',
+        'icon_exists_1',
+        'icon_readable_1',
+        'parent_dir_contents',
+    ],
+    static function (bool $valid, string $key) use ($debugEndpoint): bool {
+        return $valid && str_contains($debugEndpoint, "'" . $key . "' =>");
+    },
+    true
+);
+$debugEndpointRequiresAdmin = str_contains(
+    $debugEndpoint,
+    '($currentUser[\'role\'] ?? null) !== \'admin\''
+);
+same($debugEndpointIncludesPaths, true, 'apache-debug-endpoint-returns-requested-fields');
+same($debugEndpointRequiresAdmin, true, 'apache-debug-endpoint-requires-admin-session');
 
 $dashboardReferencesRootManifest = str_contains(
     file_get_contents(__DIR__ . '/../dashboard-ui/index.html'),
