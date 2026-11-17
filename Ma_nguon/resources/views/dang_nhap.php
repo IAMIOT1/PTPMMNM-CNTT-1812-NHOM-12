@@ -43,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="auth.login_title">Đăng nhập - Enterprise TMS</title>
+    <?php require __DIR__ . '/../../templates/pwa-head.php'; ?>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="tms.css">
     <script src="tms-theme.js" defer></script>

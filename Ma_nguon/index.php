@@ -546,6 +546,7 @@ if (!defined('TMS_PROJECT_DETAIL')) {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title data-i18n="workspace.page_title">Dự án của tôi - Enterprise TMS</title>
+        <?php require __DIR__ . '/templates/pwa-head.php'; ?>
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="tms.css">
         <script src="tms-theme.js" defer></script>
@@ -4179,6 +4180,7 @@ if ($currentProjectRole !== null) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="project.app_heading">Enterprise TMS - Full Featured</title>
+    <?php require __DIR__ . '/templates/pwa-head.php'; ?>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="tms.css">
     <script src="tms-theme.js" defer></script>

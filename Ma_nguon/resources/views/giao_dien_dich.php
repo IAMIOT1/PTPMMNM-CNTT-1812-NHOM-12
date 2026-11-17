@@ -532,6 +532,7 @@ $previewJson = json_encode(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="translation.title">Dịch thuật - TMS</title>
+    <?php require __DIR__ . '/../../templates/pwa-head.php'; ?>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="tms.css">
     <script src="tms-theme.js" defer></script>

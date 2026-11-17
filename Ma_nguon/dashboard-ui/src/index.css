@@ -86,7 +86,7 @@ a {
 
 .nav-item {
   display: flex;
-  min-height: 42px;
+  min-height: 44px;
   align-items: center;
   gap: 12px;
   border-radius: 12px;

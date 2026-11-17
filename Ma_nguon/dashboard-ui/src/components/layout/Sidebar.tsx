@@ -55,7 +55,7 @@ function Logo({ compact = false }: { compact?: boolean }) {
       </span>
       {!compact && (
         <span className="min-w-0">
-          <span className="block text-[15px] font-bold tracking-tight text-white">IAMI<span className="text-violet-300">OT</span></span>
+          <span className="block text-[15px] font-bold tracking-tight text-white">IAM<span className="text-violet-300">IOT</span></span>
           <span className="mt-0.5 block text-[10px] font-medium tracking-wide text-slate-400">{t('TRANSLATION STUDIO')}</span>
         </span>
       )}

@@ -36,6 +36,8 @@ RUN a2enmod rewrite
 
 COPY --chown=root:www-data *.php ./
 COPY --chown=root:www-data *.js *.css ./
+COPY --chown=root:www-data manifest.json offline.html ./
+COPY --chown=root:www-data icons/ icons/
 COPY --chown=root:www-data database/ database/
 COPY --chown=root:www-data data/ data/
 COPY --chown=root:www-data lang/ lang/

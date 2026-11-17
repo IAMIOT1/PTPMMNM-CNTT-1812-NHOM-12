@@ -534,6 +534,7 @@ $csrfToken = Csrf::token();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title data-i18n="admin.title">Quản lý người dùng - Enterprise TMS</title>
+    <?php require __DIR__ . '/../../templates/pwa-head.php'; ?>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="tms.css">
     <script src="tms-i18n.js" defer></script>

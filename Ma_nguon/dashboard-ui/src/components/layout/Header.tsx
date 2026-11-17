@@ -81,7 +81,7 @@ export function Header({ onMenu, mobileMenuOpen }: { onMenu: () => void; mobileM
     <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-[var(--surface)]/95 backdrop-blur-xl">
       <div className="flex min-h-[76px] items-center justify-between gap-3 px-4 sm:px-6 xl:px-8">
         <div className="flex min-w-0 items-center gap-3">
-          <button type="button" onClick={onMenu} className="grid size-10 shrink-0 place-items-center rounded-xl border border-[var(--line)] text-[var(--ink)] hover:bg-[var(--surface-soft)] lg:hidden" aria-label="Open navigation menu" aria-controls="mobile-navigation" aria-expanded={mobileMenuOpen}>
+          <button type="button" onClick={onMenu} className="grid size-11 shrink-0 place-items-center rounded-xl border border-[var(--line)] text-[var(--ink)] hover:bg-[var(--surface-soft)] lg:hidden" aria-label="Open navigation menu" aria-controls="mobile-navigation" aria-expanded={mobileMenuOpen}>
             <Menu size={19} aria-hidden="true" />
           </button>
           <div className="min-w-0">
@@ -127,12 +127,12 @@ export function Header({ onMenu, mobileMenuOpen }: { onMenu: () => void; mobileM
             )}
           </div>
 
-          <button type="button" onClick={cycleTheme} className="grid size-10 place-items-center rounded-xl text-[var(--muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--ink)]" aria-label={t(`Current theme: ${theme}. Change theme`)}>
+          <button type="button" onClick={cycleTheme} className="grid size-11 place-items-center rounded-xl text-[var(--muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--ink)]" aria-label={t(`Current theme: ${theme}. Change theme`)}>
             <ThemeIcon size={18} aria-hidden="true" />
           </button>
 
           <div className="relative">
-            <button type="button" onClick={() => setNotificationsOpen(!notificationsOpen)} className="relative grid size-10 place-items-center rounded-xl text-[var(--muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--ink)]" aria-label={t('Notifications')} aria-expanded={notificationsOpen}>
+            <button type="button" onClick={() => setNotificationsOpen(!notificationsOpen)} className="relative grid size-11 place-items-center rounded-xl text-[var(--muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--ink)]" aria-label={t('Notifications')} aria-expanded={notificationsOpen}>
               <Bell size={18} aria-hidden="true" />
               <span className="absolute right-2 top-2 size-2 rounded-full border-2 border-[var(--surface)] bg-rose-500" aria-label={t('Unread notifications')} />
             </button>
@@ -157,7 +157,7 @@ export function Header({ onMenu, mobileMenuOpen }: { onMenu: () => void; mobileM
 
           <span className="mx-1 hidden h-8 w-px bg-[var(--line)] sm:block" aria-hidden="true" />
           <div className="relative">
-            <button type="button" onClick={() => setUserMenuOpen(!userMenuOpen)} className="flex items-center gap-2 rounded-xl p-1.5 pr-2 transition hover:bg-[var(--surface-soft)]" aria-expanded={userMenuOpen} aria-label={t(userAriaLabel)}>
+            <button type="button" onClick={() => setUserMenuOpen(!userMenuOpen)} className="flex min-h-11 min-w-11 items-center gap-2 rounded-xl p-1.5 pr-2 transition hover:bg-[var(--surface-soft)]" aria-expanded={userMenuOpen} aria-label={t(userAriaLabel)}>
               {currentUser ? <Avatar user={currentUser} /> : <span className="grid size-9 place-items-center rounded-full bg-violet-100 text-xs font-bold text-violet-700">?</span>}
               <span className="hidden min-w-0 text-left lg:block">
                 <span className="block max-w-28 truncate text-xs font-bold text-[var(--ink)]">{userName}</span>

@@ -40,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 ?>
 <!doctype html>
 <html lang="vi">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Đặt lại mật khẩu</title><script src="https://cdn.tailwindcss.com"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Đặt lại mật khẩu</title><?php require __DIR__ . '/templates/pwa-head.php'; ?><script src="https://cdn.tailwindcss.com"></script></head>
 <body class="flex min-h-screen items-center justify-center bg-gray-50 p-4">
 <main class="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-8 shadow-sm">
     <h1 class="text-2xl font-bold text-indigo-600">Đặt lại mật khẩu</h1>

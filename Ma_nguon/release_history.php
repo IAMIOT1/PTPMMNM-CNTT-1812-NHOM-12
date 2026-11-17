@@ -220,6 +220,7 @@ while ($row = pg_fetch_assoc($releasesRes)) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title data-i18n="releases.history">Lịch sử phát hành - TMS</title>
+    <?php require __DIR__ . '/templates/pwa-head.php'; ?>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="tms.css">
     <script src="tms-theme.js" defer></script>

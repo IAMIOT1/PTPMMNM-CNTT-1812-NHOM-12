@@ -52,7 +52,7 @@ export function DataTable<T extends { id: string }>({
   return (
     <LocalizedContent>
     <div
-      className="max-w-full overflow-x-auto rounded-xl border border-[var(--line)]"
+      className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-[var(--line)]"
       role="region"
       aria-labelledby={`${caption.replace(/\W+/g, '-').toLowerCase()}-caption`}
       tabIndex={0}

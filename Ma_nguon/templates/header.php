@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CommunityPass • Bài thực hành OSS</title>
+<?php require __DIR__ . '/pwa-head.php'; ?>
 <link rel="stylesheet" href="/assets/css/tokens.css">
 <link rel="stylesheet" href="/assets/css/app.css">
 </head>
