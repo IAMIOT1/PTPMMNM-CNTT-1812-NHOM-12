@@ -37,7 +37,7 @@ RUN a2enmod rewrite
 COPY --chown=root:www-data *.php ./
 COPY --chown=root:www-data *.js *.css ./
 COPY --chown=root:www-data manifest.json offline.html ./
-COPY --chown=root:www-data icons/ icons/
+COPY --chown=root:www-data icons/ /var/www/html/icons/
 COPY --chown=root:www-data database/ database/
 COPY --chown=root:www-data data/ data/
 COPY --chown=root:www-data lang/ lang/
@@ -102,7 +102,9 @@ RUN chown root:www-data /var/www/html \
     && chown -R www-data:www-data /var/www/storage /var/www/html/uploads /var/www/html/releases \
     && chmod 0700 /var/www/storage \
     && find /var/www/html/uploads /var/www/html/releases -type d -exec chmod 0770 {} + \
-    && find /var/www/html/uploads /var/www/html/releases -type f -exec chmod 0660 {} +
+    && find /var/www/html/uploads /var/www/html/releases -type f -exec chmod 0660 {} + \
+    && chmod -R 0755 /var/www/html/icons \
+    && find /var/www/html/icons -type f -exec chmod 0644 {} +
 
 RUN <<'CREATE_START_SCRIPT'
 set -eu
