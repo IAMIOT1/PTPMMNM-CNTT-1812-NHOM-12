@@ -74,6 +74,7 @@ cat > /etc/apache2/sites-available/000-default.conf <<'APACHE_SITE'
     <Directory /var/www/html/icons>
         Options FollowSymLinks
         AllowOverride None
+        FallbackResource disabled
         Require all granted
     </Directory>
 

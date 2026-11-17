@@ -78,6 +78,7 @@ $apacheServesIconsDirectly = str_contains($dockerfile, 'DocumentRoot /var/www/ht
     && $existingFileConditionPosition < $dashboardFallbackPosition
     && $existingDirectoryConditionPosition < $dashboardFallbackPosition
     && str_contains($dockerfile, '<Directory /var/www/html/icons>')
+    && str_contains($dockerfile, 'FallbackResource disabled')
     && str_contains($dockerfile, 'Require all granted');
 same($apacheServesIconsDirectly, true, 'apache-serves-pwa-icons-directly');
 
