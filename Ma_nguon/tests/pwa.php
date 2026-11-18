@@ -127,4 +127,19 @@ $dashboardLoadsRootPwaScript = str_contains(
 );
 same($dashboardReferencesRootManifest && $dashboardLoadsRootPwaScript, true, 'dashboard-uses-root-pwa-assets');
 
+$legacyPwaScript = file_get_contents(__DIR__ . '/../pwa.js');
+$dashboardHeader = file_get_contents(__DIR__ . '/../dashboard-ui/src/components/layout/Header.tsx');
+$legacyInstallUiRemoved = !str_contains($legacyPwaScript, 'beforeinstallprompt')
+    && !str_contains($legacyPwaScript, 'pwa-install-button')
+    && !str_contains($legacyPwaScript, 'pwa-install-status')
+    && !str_contains($legacyPwaScript, 'pwa-install.css');
+same($legacyInstallUiRemoved, true, 'legacy-global-pwa-install-ui-removed');
+$dashboardHasManualInstallFlow = str_contains($dashboardHeader, "addEventListener('beforeinstallprompt'")
+    && str_contains($dashboardHeader, "addEventListener('appinstalled'")
+    && str_contains($dashboardHeader, 'promptEvent.prompt()')
+    && str_contains($dashboardHeader, 'promptEvent.userChoice')
+    && str_contains($dashboardHeader, 'setIsInstalled(true)')
+    && str_contains($dashboardHeader, 'Do you want to install the IAMIOT app on this device?');
+same($dashboardHasManualInstallFlow, true, 'dashboard-has-confirmed-manual-pwa-install');
+
 finish();

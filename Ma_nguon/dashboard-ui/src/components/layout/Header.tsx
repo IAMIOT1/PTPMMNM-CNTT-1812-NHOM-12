@@ -1,11 +1,37 @@
-import { Bell, ChevronDown, Command, Menu, Moon, Sun, Monitor, Search, Sparkles } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Bell, ChevronDown, Command, Menu, Moon, Sun, Monitor, MonitorDown, Search, Sparkles } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Avatar } from '../common/Avatar'
+import { Button } from '../common/Button'
+import { Modal } from '../common/Modal'
 import { useAppStore } from '../../store/appStore'
 import { accountRoleLabels, projectRoleLabels } from '../../lib/utils'
 import { applyThemePreference } from '../../lib/theme'
 import { translateText } from '../../lib/i18n'
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
+
+let deferredInstallPrompt: BeforeInstallPromptEvent | null = null
+let hasInstalledPwa = false
+const pwaInstallStateSubscribers = new Set<() => void>()
+const notifyPwaInstallState = () => pwaInstallStateSubscribers.forEach((subscriber) => subscriber())
+
+// Capture the prompt before workspace loading finishes and the Header mounts.
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault()
+    deferredInstallPrompt = event as BeforeInstallPromptEvent
+    notifyPwaInstallState()
+  })
+  window.addEventListener('appinstalled', () => {
+    hasInstalledPwa = true
+    deferredInstallPrompt = null
+    notifyPwaInstallState()
+  })
+}
 
 const routeTitles: Record<string, { title: string; subtitle: string }> = {
   '/dashboard': { title: 'Overview', subtitle: 'A clear view of your localization workflow.' },
@@ -50,6 +76,27 @@ export function Header({ onMenu, mobileMenuOpen }: { onMenu: () => void; mobileM
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [quickSearch, setQuickSearch] = useState('')
+  const [deferredPrompt, setDeferredPrompt] = useState(deferredInstallPrompt)
+  const [isInstalled, setIsInstalled] = useState(false)
+  const [installConfirmationOpen, setInstallConfirmationOpen] = useState(false)
+
+  useEffect(() => {
+    const standaloneDisplay = window.matchMedia('(display-mode: standalone)')
+    const updateInstalledState = () => {
+      const isAppleStandalone = (navigator as Navigator & { standalone?: boolean }).standalone === true
+      setDeferredPrompt(deferredInstallPrompt)
+      setIsInstalled(hasInstalledPwa || standaloneDisplay.matches || isAppleStandalone)
+      if (hasInstalledPwa) setInstallConfirmationOpen(false)
+    }
+
+    updateInstalledState()
+    pwaInstallStateSubscribers.add(updateInstalledState)
+    standaloneDisplay.addEventListener('change', updateInstalledState)
+    return () => {
+      pwaInstallStateSubscribers.delete(updateInstalledState)
+      standaloneDisplay.removeEventListener('change', updateInstalledState)
+    }
+  }, [])
 
   const filteredRoutes = useMemo(() => {
     const routes = Object.entries(routeTitles).filter(([route]) => route !== '/dashboard')
@@ -76,6 +123,43 @@ export function Header({ onMenu, mobileMenuOpen }: { onMenu: () => void; mobileM
     }
   }
   const ThemeIcon = theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor
+  const installApp = async () => {
+    const promptEvent = deferredPrompt
+    if (!promptEvent) return
+
+    deferredInstallPrompt = null
+    setDeferredPrompt(null)
+    setInstallConfirmationOpen(false)
+    try {
+      await promptEvent.prompt()
+      const { outcome } = await promptEvent.userChoice
+      if (outcome === 'accepted') {
+        hasInstalledPwa = true
+        setIsInstalled(true)
+      } else {
+        addToast({
+          title: t('Installation cancelled'),
+          message: t('You can install it later from your browser.'),
+          tone: 'info',
+        })
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        addToast({
+          title: t('Installation cancelled'),
+          message: t('You can install it later from your browser.'),
+          tone: 'info',
+        })
+        return
+      }
+      console.error('Unable to install the IAMIOT web app.', error)
+      addToast({
+        title: t('Could not install app'),
+        message: t('Try installing again later.'),
+        tone: 'error',
+      })
+    }
+  }
 
   return (
     <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-[var(--surface)]/95 backdrop-blur-xl">
@@ -156,6 +240,19 @@ export function Header({ onMenu, mobileMenuOpen }: { onMenu: () => void; mobileM
           </div>
 
           <span className="mx-1 hidden h-8 w-px bg-[var(--line)] sm:block" aria-hidden="true" />
+          {deferredPrompt && !isInstalled && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setInstallConfirmationOpen(true)}
+              icon={<MonitorDown size={18} aria-hidden="true" />}
+              aria-label={t('Install app')}
+              title={t('Install app')}
+              className="shrink-0"
+            >
+              <span className="hidden sm:inline">{t('Install app')}</span>
+            </Button>
+          )}
           <div className="relative">
             <button type="button" onClick={() => setUserMenuOpen(!userMenuOpen)} className="flex min-h-11 min-w-11 items-center gap-2 rounded-xl p-1.5 pr-2 transition hover:bg-[var(--surface-soft)]" aria-expanded={userMenuOpen} aria-label={t(userAriaLabel)}>
               {currentUser ? <Avatar user={currentUser} /> : <span className="grid size-9 place-items-center rounded-full bg-violet-100 text-xs font-bold text-violet-700">?</span>}
@@ -213,6 +310,21 @@ export function Header({ onMenu, mobileMenuOpen }: { onMenu: () => void; mobileM
           </div>
         </div>
       </div>
+      <Modal
+        open={installConfirmationOpen}
+        onClose={() => setInstallConfirmationOpen(false)}
+        title={t('Install app')}
+        description={t('Do you want to install the IAMIOT app on this device?')}
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setInstallConfirmationOpen(false)}>
+            {t('Not now')}
+          </Button>
+          <Button variant="primary" onClick={() => { void installApp() }}>
+            {t('Yes, install')}
+          </Button>
+        </div>
+      </Modal>
     </header>
   )
 }
